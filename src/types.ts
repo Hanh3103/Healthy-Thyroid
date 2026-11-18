@@ -62,8 +62,8 @@ export interface MailSlot {
   fri?: boolean;
 }
 
-/** Result shape returned by the Gemini Prioritization API. */
-export interface GeminiTaskResult {
+/** Result shape returned by the AI prioritization API. */
+export interface AITaskResult {
   id: string;
   energy: number;
   minutes: number;
@@ -71,7 +71,7 @@ export interface GeminiTaskResult {
   reason: string;
 }
 
-export interface GeminiPrioritizationResult {
-  tasks: GeminiTaskResult[];
+export interface AIPrioritizationResult {
+  tasks: AITaskResult[];
   order: string[];
 }

@@ -4,6 +4,40 @@ import { state } from './state';
 import { $, esc, keyOf, dueLabel, getPast7Days } from './utils';
 import { score, orderNow, streak, todaySlots } from './scoring';
 
+export type TaskDueFilter = 'all' | 'today' | 'tomorrow' | 'week';
+export let taskDueFilter: TaskDueFilter = 'all';
+
+export function setTaskDueFilter(filter: TaskDueFilter): void {
+  taskDueFilter = filter;
+}
+
+function matchesDueFilter(task: Task): boolean {
+  if (taskDueFilter === 'all') return true;
+  if (taskDueFilter === 'today') {
+    if (task.imp === 3) return true;
+  }
+  if (!task.due) return false;
+
+  const [year, month, day] = task.due.split('-').map(Number);
+  const dueDate = new Date(year, month - 1, day);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+
+  if (taskDueFilter === 'today') {
+    return dueDate.getTime() === today.getTime();
+  }
+  if (taskDueFilter === 'tomorrow') {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return dueDate.getTime() === tomorrow.getTime();
+  }
+
+  const weekEnd = new Date(today);
+  weekEnd.setDate(weekEnd.getDate() + ((7 - weekEnd.getDay()) % 7));
+  return dueDate >= today && dueDate <= weekEnd;
+}
+
 function taskHTML(task: Task, first: boolean): string {
   const due = dueLabel(task.due);
   let html = `<li class="task${task.done ? ' done' : ''}${first ? ' first' : ''}${task.est ? '' : ' guess'}" data-id="${task.id}">`;
@@ -15,9 +49,9 @@ function taskHTML(task: Task, first: boolean): string {
   html += '<div class="meta">';
   html += `<button type="button" class="pill e${task.energy}" data-act="energy" title="Click to cycle energy needed">${EN_NAMES[task.energy]} energy</button>`;
   html += `<button type="button" class="pill imp imp${task.imp}" data-act="imp" title="Click to cycle urgency">${IM_NAMES[task.imp]}</button>`;
-  if (task.min) html += `<span class="chip">${task.min} min</span>`;
+  if (task.min) html += `<button type="button" class="chip task-editable" data-act="details" title="Change estimated time">${task.min} min</button>`;
   if (!task.est) html += '<span class="chip todo">Not estimated yet</span>';
-  if (due) html += `<span class="chip${due.late ? ' late' : ''}">${due.t}</span>`;
+  if (due) html += `<button type="button" class="chip task-editable${due.late ? ' late' : ''}" data-act="details" title="Change due date">${due.t}</button>`;
   if (task.ex) html += '<span class="chip ex">Example</span>';
   html += '</div></div>';
   html += '<button type="button" class="del" data-act="del" aria-label="Delete task">×</button></li>';
@@ -111,7 +145,7 @@ export function render(): void {
   $('habits').innerHTML = habitsHTML;
   $('habit-count').textContent = `${doneHabits} of ${expectedHabits} done`;
 
-  const open = state.tasks.filter((task) => !task.done);
+  const open = state.tasks.filter((task) => !task.done && matchesDueFilter(task));
   const now = orderNow(open.filter((task) => task.energy <= energy), energy);
   const later = open.filter((task) => task.energy > energy).sort((a, b) => score(b, 3) - score(a, 3));
   const done = state.tasks.filter((task) => task.done);

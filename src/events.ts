@@ -3,9 +3,70 @@ import { DEFAULT_HABITS } from './constants';
 import { state, newTask } from './state';
 import { $, keyOf } from './utils';
 import { toggleSlot } from './scoring';
-import { getGeminiApiKey, prioritizeWithGemini } from './ai';
+import { estimateTask, prioritizeTasks } from './ai';
+import { AI_ENDPOINTS, getAIConfig } from './ai-client';
+import { setTaskDueFilter } from './render';
 
 export function setupEvents(commit: () => void): void {
+  document.querySelectorAll<HTMLButtonElement>('[data-task-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll<HTMLButtonElement>('[data-task-filter]').forEach((item) => item.classList.remove('active'));
+      button.classList.add('active');
+      setTaskDueFilter(button.getAttribute('data-task-filter') as 'all' | 'today' | 'tomorrow' | 'week');
+      commit();
+    });
+  });
+  const taskDetailsDialog = $<HTMLDialogElement>('task-details-dialog');
+  const taskDueInput = $<HTMLInputElement>('task-due-input');
+  const taskMinutesInput = $<HTMLInputElement>('task-minutes-input');
+  let editingTaskId: string | null = null;
+
+  function openTaskDetails(task: { id: string; title: string; due: string; min: number }): void {
+    editingTaskId = task.id;
+    $('task-details-title').textContent = task.title;
+    taskDueInput.value = task.due || '';
+    taskMinutesInput.value = String(task.min || 30);
+    taskDetailsDialog.showModal();
+  }
+
+  $('task-details-close').addEventListener('click', () => taskDetailsDialog.close());
+  $('task-details-cancel').addEventListener('click', () => taskDetailsDialog.close());
+  $<HTMLFormElement>('task-details-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!editingTaskId) return;
+    const task = state.tasks.find((item) => item.id === editingTaskId);
+    if (!task) return;
+    task.due = taskDueInput.value;
+    task.min = Math.max(5, Math.min(360, Number(taskMinutesInput.value) || 30));
+    task.est = true;
+    taskDetailsDialog.close();
+    editingTaskId = null;
+    commit();
+  });
+
+  taskDetailsDialog.querySelectorAll<HTMLButtonElement>('[data-due-preset]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const preset = button.getAttribute('data-due-preset');
+      const date = new Date();
+      if (preset === 'tomorrow') date.setDate(date.getDate() + 1);
+      if (preset === 'week') {
+        const daysUntilSunday = (7 - date.getDay()) % 7;
+        date.setDate(date.getDate() + (daysUntilSunday || 7));
+      }
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      taskDueInput.value = `${year}-${month}-${day}`;
+      if (!editingTaskId) return;
+      const task = state.tasks.find((item) => item.id === editingTaskId);
+      if (!task) return;
+      task.due = taskDueInput.value;
+      taskDetailsDialog.close();
+      editingTaskId = null;
+      commit();
+    });
+  });
+
   $('energy').addEventListener('click', (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-level]');
     if (!button) return;
@@ -55,8 +116,9 @@ export function setupEvents(commit: () => void): void {
       task.imp = ((task.imp % 3) + 1) as 1 | 2 | 3;
       task.locked = true;
     }
+    if (action === 'details') openTaskDetails(task);
     if (action === 'del') state.tasks.splice(index, 1);
-    commit();
+    if (action !== 'details') commit();
   }
 
   ['list-now', 'list-later', 'list-done'].forEach((id) => {
@@ -74,12 +136,22 @@ export function setupEvents(commit: () => void): void {
     const energy = rawEnergy === 1 || rawEnergy === 2 || rawEnergy === 3
       ? rawEnergy as EnergyLevel
       : undefined;
-    state.tasks.push(newTask(title, dueInput.value, energy));
+    const task = newTask(title, dueInput.value, energy);
+    state.tasks.push(task);
     titleInput.value = '';
     dueInput.value = '';
-    energyInput.value = 'auto';
-    commit();
+    energyInput.value = '';
     titleInput.focus();
+    if (!energy) {
+      void estimateTask(
+        task.id,
+        (message) => { $('ai-status').textContent = message; },
+        commit
+      );
+      $('ai-status').textContent = `Estimating "${title}"…`;
+    } else {
+      commit();
+    }
   });
 
   $('bulk-add').addEventListener('click', () => {
@@ -174,24 +246,49 @@ export function setupEvents(commit: () => void): void {
   });
 
   const settingsDialog = $<HTMLDialogElement>('settings-dialog');
-  const keyInput = $<HTMLInputElement>('gemini-key-input');
+  const providerInput = $<HTMLSelectElement>('ai-provider-input');
+  const keyInput = $<HTMLInputElement>('ai-api-key-input');
+  const endpointInput = $<HTMLInputElement>('ai-endpoint-input');
+  const modelInput = $<HTMLInputElement>('ai-model-input');
   $('settings-btn').addEventListener('click', () => {
-    keyInput.value = getGeminiApiKey();
+    const config = getAIConfig();
+    providerInput.value = config.provider;
+    keyInput.value = config.apiKey;
+    endpointInput.value = config.endpoint;
+    modelInput.value = config.model;
     settingsDialog.showModal();
   });
   $('settings-close').addEventListener('click', () => settingsDialog.close());
   $('settings-cancel').addEventListener('click', () => settingsDialog.close());
+  providerInput.addEventListener('change', () => {
+    const provider = providerInput.value as keyof typeof AI_ENDPOINTS;
+    const preset = AI_ENDPOINTS[provider];
+    if (preset) {
+      endpointInput.value = preset.endpoint;
+      modelInput.value = preset.model;
+    }
+  });
   $<HTMLFormElement>('settings-form').addEventListener('submit', (event) => {
     event.preventDefault();
+    const provider = providerInput.value as 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral';
     const key = keyInput.value.trim();
-    if (key) localStorage.setItem('gemini_api_key', key);
-    else localStorage.removeItem('gemini_api_key');
-    $('ai-status').textContent = key ? 'Gemini API key saved.' : 'Gemini API key cleared.';
+    const endpoint = endpointInput.value.trim();
+    const model = modelInput.value.trim();
+    localStorage.setItem('ai_provider', provider);
+    if (key) localStorage.setItem('ai_api_key', key);
+    else localStorage.removeItem('ai_api_key');
+    if (endpoint) localStorage.setItem('ai_endpoint', endpoint);
+    else localStorage.removeItem('ai_endpoint');
+    if (model) localStorage.setItem('ai_model', model);
+    else localStorage.removeItem('ai_model');
+    $('ai-status').textContent = key && endpoint && model
+      ? 'AI configuration saved.'
+      : 'AI configuration cleared or incomplete.';
     settingsDialog.close();
   });
 
   $('ai-btn').addEventListener('click', () => {
-    void prioritizeWithGemini(
+    void prioritizeTasks(
       (message) => { $('ai-status').textContent = message; },
       commit
     );
