@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Energy Planner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap"
+    />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main>
+      <header class="top">
+        <div>
+          <p class="date" id="date"></p>
+          <h1>Energy Planner</h1>
+        </div>
+        <div class="top-actions">
+          <p class="summary" id="summary"></p>
+          <button class="ghost icon-btn" type="button" id="settings-btn" title="Settings" aria-label="Settings">⚙️</button>
+        </div>
+      </header>
+
+      <div class="grid">
+        <aside class="rail">
+          <section class="panel" aria-labelledby="h-energy">
+            <h2 id="h-energy">Your energy right now</h2>
+            <div class="seg" id="energy" role="radiogroup" aria-labelledby="h-energy">
+              <button type="button" role="radio" data-level="1" style="--c:var(--e1);--cbg:var(--e1-bg)">
+                <span class="bars"><i></i><i></i><i></i></span>Low
+              </button>
+              <button type="button" role="radio" data-level="2" style="--c:var(--e2);--cbg:var(--e2-bg)">
+                <span class="bars"><i></i><i></i><i></i></span>Medium
+              </button>
+              <button type="button" role="radio" data-level="3" style="--c:var(--e3);--cbg:var(--e3-bg)">
+                <span class="bars"><i></i><i></i><i></i></span>High
+              </button>
+            </div>
+            <p class="muted" id="energy-hint"></p>
+          </section>
+
+          <section class="panel" aria-labelledby="h-habits">
+            <div class="sec-head">
+              <h2 id="h-habits">Every day <small id="habit-count"></small></h2>
+              <button class="ghost habit-add-toggle" type="button" id="habit-add-btn">+ Add habit</button>
+            </div>
+            <form class="habit-form" id="habit-form" autocomplete="off" hidden>
+              <label for="h-name">Habit name
+                <input id="h-name" type="text" placeholder="e.g. Take L-Thyroxin or Morning walk" required maxlength="60" />
+              </label>
+              <label for="h-min">Minutes per day
+                <input id="h-min" type="number" min="1" max="360" value="15" />
+              </label>
+              <label for="h-desc">Details / Notes (optional)
+                <input id="h-desc" type="text" placeholder="e.g. 30 min before breakfast with water" maxlength="140" />
+              </label>
+              <div class="actions">
+                <button class="primary" type="submit">Save Habit</button>
+                <button class="ghost" type="button" id="habit-cancel-btn">Cancel</button>
+              </div>
+            </form>
+            <div id="habits"></div>
+          </section>
+        </aside>
+
+        <div class="main-col">
+          <section class="panel" aria-labelledby="h-add">
+            <h2 id="h-add">Add a task</h2>
+            <form class="add" id="add-form" autocomplete="off">
+              <label class="grow" for="t-title">Task
+                <input id="t-title" type="text" placeholder="e.g. Tailor CV for the next application" required maxlength="140" />
+              </label>
+              <label for="t-energy">Energy (optional)
+                <select id="t-energy">
+                  <option value="auto">AI</option>
+                  <option value="1">Low</option>
+                  <option value="2">Medium</option>
+                  <option value="3">High</option>
+                </select>
+              </label>
+              <label for="t-due">Due (optional)
+                <input id="t-due" type="date" />
+              </label>
+              <button class="primary" type="submit">Add</button>
+            </form>
+            <p class="muted hint-line">Only type what the task is. Energy, time, and urgency can be set or estimated.</p>
+            <details class="hint-line">
+              <summary>Paste a list instead</summary>
+              <p class="muted">One task per line.</p>
+              <textarea id="bulk" aria-label="Tasks, one per line" placeholder="Reply to recruiter&#10;Write portfolio README&#10;Practise interview answers"></textarea>
+              <div class="actions"><button class="ghost" type="button" id="bulk-add">Add lines as tasks</button></div>
+            </details>
+          </section>
+
+          <div class="banner" id="ex-banner" hidden>
+            <span>The tasks marked "Example" show how it looks. Replace them with your own.</span>
+            <button class="ghost" type="button" id="clear-ex">Remove examples</button>
+          </div>
+
+          <section class="panel" aria-labelledby="h-now">
+            <div class="sec-head">
+              <div class="sec-title-wrap">
+                <h2 id="h-now">Do now</h2>
+                <span class="muted" id="now-meta"></span>
+              </div>
+              <button class="primary btn-sm" type="button" id="ai-btn">AI Prioritize</button>
+            </div>
+            <p class="status ai-status-line" id="ai-status" role="status"></p>
+            <p class="muted" id="plan-note"></p>
+            <ol id="list-now"></ol>
+          </section>
+
+          <section class="panel later-panel" aria-labelledby="h-later">
+            <div class="sec-head">
+              <h2 id="h-later">Save for more energy</h2>
+              <span class="muted" id="later-meta"></span>
+            </div>
+            <ol id="list-later"></ol>
+          </section>
+
+          <section class="panel" aria-labelledby="h-done" id="done-panel" hidden>
+            <div class="sec-head">
+              <h2 id="h-done">Done</h2>
+              <button class="ghost" type="button" id="clear-done">Clear done</button>
+            </div>
+            <ol id="list-done"></ol>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>Backup &amp; Data</summary>
+              <p class="muted">Your data is stored safely on this machine. Copy the backup text to keep an extra copy or restore on another computer.</p>
+              <textarea id="backup" aria-label="Backup text"></textarea>
+              <div class="actions">
+                <button class="ghost" type="button" id="b-copy">Copy backup</button>
+                <button class="ghost" type="button" id="b-restore">Restore from text</button>
+              </div>
+              <p class="status" id="b-status" role="status"></p>
+            </details>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- Settings Dialog -->
+    <dialog id="settings-dialog" class="modal">
+      <div class="modal-content">
+        <div class="modal-head">
+          <h3>AI Settings</h3>
+          <button type="button" class="del" id="settings-close" aria-label="Close">×</button>
+        </div>
+        <form id="settings-form">
+          <label for="gemini-key-input">Google Gemini API Key
+            <input id="gemini-key-input" type="password" placeholder="AIzaSy..." autocomplete="off" />
+          </label>
+          <p class="muted" style="margin-top: 6px; font-size: 12px;">
+            Get a free key from <a href="https://aistudio.google.com/" target="_blank" rel="noopener" style="color: var(--ok);">Google AI Studio</a>. You can also configure it in a <code>.env.local</code> file as <code>VITE_GEMINI_API_KEY</code>.
+          </p>
+          <div class="actions" style="margin-top: 18px; justify-content: flex-end;">
+            <button class="ghost" type="button" id="settings-cancel">Cancel</button>
+            <button class="primary btn-sm" type="submit">Save Key</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+  </body>
+</html>
