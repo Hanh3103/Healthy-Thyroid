@@ -984,7 +984,7 @@ dialog.modal {
   border-radius: var(--radius-cards);
   background: transparent;
   padding: 0;
-  max-width: 480px;
+  max-width: 440px;
   width: calc(100% - 32px);
   color: var(--ink);
 }
@@ -998,8 +998,8 @@ dialog.modal::backdrop {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-cards);
-  padding: var(--card-padding);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  padding: var(--spacing-20, 20px);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.22);
 }
 
 .modal-head {
@@ -1007,11 +1007,124 @@ dialog.modal::backdrop {
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--spacing-16);
+  padding-bottom: var(--spacing-12);
+  border-bottom: 1px solid var(--line);
 }
 
 .modal-head h3 {
   font-size: 17px;
   font-weight: var(--font-weight-semibold);
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-buttons);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.modal-close:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.modal form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--spacing-12);
+}
+
+.modal form input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-buttons);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 var(--spacing-12);
+  font-size: 14px;
+}
+
+.modal form input:focus {
+  border-color: var(--ink);
+  outline: none;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-8);
+  margin-top: var(--spacing-16);
+}
+
+.modal-actions button {
+  box-sizing: border-box;
+  height: 36px;
+}
+
+.thyroid-appt-hint {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 4px;
+}
+
+.thyroid-freq-choices {
+  display: flex;
+  gap: var(--spacing-8);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-8);
+}
+
+.thyroid-choice {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-buttons);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.thyroid-choice input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thyroid-choice:has(input:checked) {
+  border-color: var(--ink);
+  background: var(--surface-inverted-surface);
+  color: var(--accent-ink);
+}
+
+.thyroid-choice:hover {
+  border-color: var(--ink-2);
+  color: var(--ink);
+}
+
+.thyroid-choice span {
+  pointer-events: none;
 }
 
 #settings-form label {
@@ -1089,6 +1202,553 @@ button.task-editable {
   border: 0;
   cursor: pointer;
   font: inherit;
+}
+
+.app-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.app-nav .btn-sm.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
+}
+
+.thyroid-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-20);
+}
+
+.thyroid-scanner {
+  display: grid;
+  gap: var(--spacing-10);
+  margin-bottom: var(--spacing-16);
+  padding: var(--spacing-12);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-buttons);
+}
+
+.thyroid-scanner label,
+.thyroid-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+}
+
+.thyroid-scanner input,
+.thyroid-form input,
+.thyroid-view textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-buttons);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 var(--spacing-12);
+}
+
+.thyroid-view textarea {
+  min-height: 120px;
+  padding: var(--spacing-12);
+  resize: vertical;
+}
+
+.thyroid-form input {
+  min-height: 36px;
+}
+
+.thyroid-form {
+  display: grid;
+  gap: var(--spacing-12);
+  width: 100%;
+  max-width: none;
+  text-align: left;
+}
+
+.thyroid-form h3 {
+  font-size: 16px;
+}
+
+.thyroid-field-grid {
+  overflow-x: auto;
+}
+
+.thyroid-field-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  text-align: left;
+}
+
+.thyroid-field-table th,
+.thyroid-field-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.thyroid-field-table th {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  text-align: left;
+}
+
+.thyroid-field-table td label {
+  margin: 0;
+  text-align: left;
+}
+
+.thyroid-field-table input {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.thyroid-field-table .thyroid-unit-input {
+  max-width: 104px;
+  min-width: 80px;
+}
+
+.thyroid-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.thyroid-field-table .thyroid-range-input {
+  width: 68px;
+  min-width: 0;
+}
+
+.thyroid-range-sep {
+  color: var(--ink-2);
+}
+
+.thyroid-custom-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thyroid-archive-btn {
+  min-height: 28px;
+  padding: 0 8px;
+  color: var(--ink-2);
+  line-height: 1;
+}
+
+.thyroid-add-test {
+  display: grid;
+  gap: var(--spacing-8);
+  padding: var(--spacing-12);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-buttons);
+}
+
+.thyroid-add-test h4 {
+  font-size: 13px;
+}
+
+.thyroid-add-test-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--spacing-8);
+  align-items: end;
+}
+
+.thyroid-add-test-grid > button {
+  justify-self: end;
+  box-sizing: border-box;
+  height: 36px;
+}
+
+.thyroid-add-test-grid input {
+  min-height: 36px;
+  font-size: 13px;
+}
+
+.thyroid-add-test-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-8);
+}
+
+.thyroid-add-test-actions .status {
+  flex: 1;
+  min-width: 0;
+}
+
+.thyroid-form .actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.thyroid-form .actions button,
+.thyroid-add-test-actions .primary {
+  box-sizing: border-box;
+  height: 36px;
+}
+
+.thyroid-footnote {
+  font-size: 12px;
+}
+
+.thyroid-history-unit {
+  margin-left: 3px;
+  color: var(--ink-2);
+  font-size: 10px;
+}
+
+.thyroid-value-low,
+.thyroid-value-high {
+  color: var(--danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+.thyroid-value-flag {
+  margin-left: 2px;
+  font-size: 11px;
+}
+
+.thyroid-table-wrap {
+  overflow-x: auto;
+}
+
+.thyroid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.thyroid-table th,
+.thyroid-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.thyroid-table th {
+  color: var(--ink-2);
+  font-weight: var(--font-weight-medium);
+}
+
+.thyroid-table td:last-child {
+  text-align: right;
+}
+
+.thyroid-appointment-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  flex-wrap: wrap;
+  padding: var(--spacing-12);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-buttons);
+  background: var(--surface-2);
+  margin-bottom: var(--spacing-12);
+}
+
+.thyroid-appt-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-8);
+  flex-wrap: wrap;
+}
+
+.thyroid-appt-label {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.thyroid-appt-main strong {
+  font-size: 15px;
+}
+
+.thyroid-appt-countdown {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.thyroid-appt-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-8);
+  flex-wrap: wrap;
+}
+
+.thyroid-appt-status {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.thyroid-appointment-card.thyroid-appt-due {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-2));
+}
+
+.thyroid-appointment-card.thyroid-appt-overdue .thyroid-appt-status {
+  color: var(--danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+.thyroid-appt-banner {
+  margin-bottom: var(--spacing-12);
+  padding: var(--spacing-10) var(--spacing-12);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-buttons);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger);
+  font-weight: var(--font-weight-medium);
+}
+
+.thyroid-freq-choices {
+  display: flex;
+  gap: var(--spacing-8);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-8);
+}
+
+.thyroid-freq-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.thyroid-date-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.thyroid-date-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding-right: 40px;
+}
+
+.thyroid-date-picker-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.thyroid-date-picker-btn:hover {
+  color: var(--ink);
+}
+
+.thyroid-date-picker-hidden {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  border: 0;
+  padding: 0;
+}
+
+.thyroid-dashboard {
+  margin-bottom: var(--spacing-24);
+}
+
+.thyroid-dashboard .sec-head {
+  align-items: center;
+}
+
+.thyroid-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-8);
+  margin-bottom: var(--spacing-12);
+}
+
+.thyroid-dash-stat {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-buttons);
+  padding: var(--spacing-12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thyroid-dash-stat-label {
+  font-size: 11px;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: var(--font-weight-medium);
+}
+
+.thyroid-dash-stat strong {
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.thyroid-dash-stat strong small {
+  font-size: 11px;
+  color: var(--ink-2);
+  font-weight: var(--font-weight-medium);
+}
+
+.thyroid-dash-stat-sub {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.thyroid-dash-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  background: var(--surface-inverted-surface);
+  color: var(--accent-ink);
+}
+
+.thyroid-dash-badge-warn {
+  background: color-mix(in srgb, var(--danger) 15%, var(--surface));
+  color: var(--danger);
+}
+
+.thyroid-dashboard-controls {
+  display: flex;
+  gap: var(--spacing-12);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.thyroid-dashboard-filters {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.thyroid-dashboard-filters .thyroid-dash-filter,
+.thyroid-dashboard-filters .thyroid-dash-overlay {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thyroid-dashboard-filters .active {
+  background: var(--surface-inverted-surface);
+  color: var(--accent-ink);
+  border-color: var(--surface-inverted-surface);
+}
+
+.thyroid-dash-series-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  padding: 0 6px;
+}
+
+.thyroid-dash-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.thyroid-dash-swatch-tsh { background: var(--accent); }
+.thyroid-dash-swatch-ft4 { background: var(--e1); }
+.thyroid-dash-swatch-ft3 { background: var(--e2); }
+
+.thyroid-dashboard-chart {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.thyroid-dash-svg {
+  display: block;
+  width: 100%;
+  min-width: 320px;
+  height: auto;
+}
+
+.thyroid-dashboard-empty {
+  text-align: center;
+  padding: var(--spacing-16);
+}
+
+.thyroid-dash-note {
+  font-size: 11px;
+  color: var(--ink-2);
+  margin: 4px 0 0;
+}
+
+@media (max-width: 860px) {
+  .thyroid-dashboard-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .top-actions {
+    width: 100%;
+  }
+
+  .app-nav {
+    order: 2;
+  }
+
+  .thyroid-add-test-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .thyroid-dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .thyroid-dashboard-controls {
+    width: 100%;
+  }
+
+  .thyroid-add-test-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .thyroid-field-table .thyroid-range-input {
+    width: 56px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
