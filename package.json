@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "lint": "eslint src",
     "test:ai": "node --experimental-strip-types --test tests/prioritize-core.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
@@ -17,7 +18,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "eslint": "^10.15.0",
     "typescript": "~6.0.3",
+    "typescript-eslint": "^8.73.0",
     "vite": "^8.0.16"
   }
 }
