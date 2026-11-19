@@ -4,10 +4,8 @@ import { keyOf, daysUntil } from './utils';
 import { MAIL_SLOTS } from './constants';
 
 /** Computes priority score for a task matching current energy level. */
-export function score(t: Task, E: number): number {
+export function score(t: Task): number {
   let s = t.imp * 10;
-  if (t.energy === E) s += 4;
-  else s -= (E - t.energy) * 1.5;
   const n = daysUntil(t.due);
   if (n !== null) {
     if (n <= 0) s += 20;
@@ -33,10 +31,10 @@ export function orderNow(list: Task[], E: number): Task[] {
       const ia = a.id in idx ? idx[a.id] : 1e6;
       const ib = b.id in idx ? idx[b.id] : 1e6;
       if (ia !== ib) return ia - ib;
-      return score(b, E) - score(a, E);
+      return score(b) - score(a);
     });
   }
-  return list.sort((a, b) => score(b, E) - score(a, E));
+  return list.sort((a, b) => score(b) - score(a));
 }
 
 /**

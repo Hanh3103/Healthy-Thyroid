@@ -2,57 +2,68 @@ import type { Habit, Task } from './types';
 import { EN_NAMES, HINTS, IM_NAMES } from './constants';
 import { state } from './state';
 import { $, esc, keyOf, dueLabel, getPast7Days } from './utils';
-import { score, orderNow, streak, todaySlots } from './scoring';
+import { orderNow, streak, todaySlots } from './scoring';
 
-export type TaskDueFilter = 'all' | 'today' | 'tomorrow' | 'week';
-export let taskDueFilter: TaskDueFilter = 'all';
+export type DumpFilter = 'all' | 'tomorrow' | 'week' | 'later';
+export let dumpFilter: DumpFilter = 'all';
 
-export function setTaskDueFilter(filter: TaskDueFilter): void {
-  taskDueFilter = filter;
+export function setDumpFilter(filter: DumpFilter): void {
+  dumpFilter = filter;
 }
 
-function matchesDueFilter(task: Task): boolean {
-  if (taskDueFilter === 'all') return true;
-  if (taskDueFilter === 'today') {
-    if (task.imp === 3) return true;
-  }
-  if (!task.due) return false;
+function matchesDumpFilter(task: Task): boolean {
+  if (dumpFilter === 'all') return true;
 
-  const [year, month, day] = task.due.split('-').map(Number);
-  const dueDate = new Date(year, month - 1, day);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  dueDate.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
 
-  if (taskDueFilter === 'today') {
-    return dueDate.getTime() === today.getTime();
+  let dueDate: Date | null = null;
+  if (task.due) {
+    const [year, month, day] = task.due.split('-').map(Number);
+    dueDate = new Date(year, month - 1, day);
+    dueDate.setHours(0, 0, 0, 0);
   }
-  if (taskDueFilter === 'tomorrow') {
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return dueDate.getTime() === tomorrow.getTime();
+
+  if (dumpFilter === 'tomorrow') {
+    return task.imp === 2 || (!!dueDate && dueDate.getTime() === tomorrow.getTime());
   }
 
   const weekEnd = new Date(today);
   weekEnd.setDate(weekEnd.getDate() + ((7 - weekEnd.getDay()) % 7));
-  return dueDate >= today && dueDate <= weekEnd;
+  if (dumpFilter === 'later') {
+    const dueTomorrow = !!dueDate && dueDate.getTime() === tomorrow.getTime();
+    const dueThisWeek = !!dueDate && dueDate > tomorrow && dueDate <= weekEnd;
+    return task.imp === 1 && !dueTomorrow && !dueThisWeek;
+  }
+  const markedThisWeek = task.imp === 3;
+  const dueThisWeek = !!dueDate && dueDate > tomorrow && dueDate <= weekEnd;
+  return markedThisWeek || dueThisWeek;
 }
 
-function taskHTML(task: Task, first: boolean): string {
+function taskHTML(task: Task, first: boolean, dump = false): string {
   const due = dueLabel(task.due);
   let html = `<li class="task${task.done ? ' done' : ''}${first ? ' first' : ''}${task.est ? '' : ' guess'}" data-id="${task.id}">`;
   html += `<button type="button" class="chk" data-act="done" aria-label="${task.done ? 'Mark as not done' : 'Mark as done'}"></button>`;
   html += '<div>';
   if (first) html += '<span class="start">Start here</span><br>';
-  html += `<span class="ttitle">${esc(task.title)}</span>`;
+  html += `<button type="button" class="ttitle task-editable" data-act="details" title="Edit task name and details">${esc(task.title)}</button>`;
   if (task.reason) html += `<p class="reason">${esc(task.reason)}</p>`;
+  if (task.estimateSource === 'heuristic') {
+    html += '<span class="chip todo" title="This estimate was calculated from the task name, not by AI">Heuristic estimate</span>';
+  }
   html += '<div class="meta">';
-  html += `<button type="button" class="pill e${task.energy}" data-act="energy" title="Click to cycle energy needed">${EN_NAMES[task.energy]} energy</button>`;
   html += `<button type="button" class="pill imp imp${task.imp}" data-act="imp" title="Click to cycle urgency">${IM_NAMES[task.imp]}</button>`;
   if (task.min) html += `<button type="button" class="chip task-editable" data-act="details" title="Change estimated time">${task.min} min</button>`;
-  if (!task.est) html += '<span class="chip todo">Not estimated yet</span>';
-  if (due) html += `<button type="button" class="chip task-editable${due.late ? ' late' : ''}" data-act="details" title="Change due date">${due.t}</button>`;
+  if (!task.est) html += '<button type="button" class="chip todo task-editable" data-act="details" title="Estimate due date and time">Not estimated yet</button>';
+  if (due) {
+    html += `<button type="button" class="chip task-editable${due.late ? ' late' : ''}" data-act="details" title="Change due date">${due.t}</button>`;
+  } else {
+    html += '<button type="button" class="chip todo task-editable" data-act="details" title="Set a due date">No due date</button>';
+  }
   if (task.ex) html += '<span class="chip ex">Example</span>';
+  if (dump) html += '<button type="button" class="chip todo task-editable" data-act="today" title="Move this task to Do now">Move to Today</button>';
   html += '</div></div>';
   html += '<button type="button" class="del" data-act="del" aria-label="Delete task">×</button></li>';
   return html;
@@ -145,24 +156,36 @@ export function render(): void {
   $('habits').innerHTML = habitsHTML;
   $('habit-count').textContent = `${doneHabits} of ${expectedHabits} done`;
 
-  const open = state.tasks.filter((task) => !task.done && matchesDueFilter(task));
-  const now = orderNow(open.filter((task) => task.energy <= energy), energy);
-  const later = open.filter((task) => task.energy > energy).sort((a, b) => score(b, 3) - score(a, 3));
+  const open = state.tasks.filter((task) => !task.done);
+  const today = open.filter((task) => {
+    if (task.imp === 4) return true;
+    if (!task.due) return false;
+    const [year, month, day] = task.due.split('-').map(Number);
+    const due = new Date(year, month - 1, day);
+    due.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return due <= now;
+  });
+  const now = orderNow(today, energy);
+  const todayIds = new Set(today.map((task) => task.id));
+  const dumps = open.filter((task) => !todayIds.has(task.id));
+  const filteredDumps = dumps.filter(matchesDumpFilter);
   const done = state.tasks.filter((task) => task.done);
 
   $('list-now').innerHTML = now.length
     ? now.map((task, index) => taskHTML(task, index === 0)).join('')
-    : '<li class="empty">Nothing fits this energy level. Add a task above, or pick another level.</li>';
-  $('list-later').innerHTML = later.length
-    ? later.map((task) => taskHTML(task, false)).join('')
-    : '<li class="empty">No higher-energy tasks waiting.</li>';
+    : '<li class="empty">No tasks waiting.</li>';
+  $('list-dumps').innerHTML = filteredDumps.length
+    ? filteredDumps.map((task) => taskHTML(task, false, true)).join('')
+    : '<li class="empty">No tasks in Dumps.</li>';
   $('list-done').innerHTML = done.map((task) => taskHTML(task, false)).join('');
   $('done-panel').hidden = !done.length;
 
   const minutes = now.reduce((total, task) => total + (task.min || 0), 0);
   $('now-meta').textContent = `${now.length} task${now.length === 1 ? '' : 's'}${minutes ? ' · about ' + minutes + ' min' : ''}`;
-  $('later-meta').textContent = later.length ? `${later.length} waiting` : '';
-  $('summary').textContent = `${EN_NAMES[energy]} energy: ${now.length} task${now.length === 1 ? '' : 's'} fit now, ${later.length} saved for later. ${doneHabits} of ${expectedHabits} daily habits done.`;
+  $('dumps-meta').textContent = filteredDumps.length ? `${filteredDumps.length} shown` : '';
+  $('summary').textContent = `${EN_NAMES[energy]} energy: ${now.length} task${now.length === 1 ? '' : 's'} waiting today. ${doneHabits} of ${expectedHabits} daily habits done.`;
   $('ex-banner').hidden = !state.tasks.some((task) => task.ex);
 
   let note = '';

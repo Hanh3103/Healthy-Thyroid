@@ -1,34 +1,30 @@
-import type { AppState, EnergyLevel, Task } from './types';
+import type { AppState, Task } from './types';
 import { STORAGE_KEY, DEFAULT_HABITS } from './constants';
 import { keyOf, uid } from './utils';
 
-/**
- * Factory function creating a new Task with optional user-specified energy level.
- */
-export function newTask(title: string, due?: string, energy?: EnergyLevel): Task {
-  const isSpecified = energy === 1 || energy === 2 || energy === 3;
+/** Factory function creating a new Task. */
+export function newTask(title: string, due?: string, minutes?: number): Task {
+  const estimatedMinutes = Math.max(0, Math.min(360, Math.round((minutes || 0) / 5) * 5));
   return {
     id: uid(),
     title,
-    energy: isSpecified ? energy : 2,
     imp: 2,
-    min: 0,
+    min: estimatedMinutes,
     due: due || '',
     done: false,
     ex: false,
-    est: isSpecified,
-    locked: isSpecified,
+    est: estimatedMinutes > 0,
+    locked: false,
     reason: ''
   };
 }
 
 /** Generates initial seed data containing sample starter tasks and default habits. */
 export function seedState(): AppState {
-  function ex(title: string, energy: EnergyLevel, imp: 1 | 2 | 3, min: number, reason: string): Task {
+  function ex(title: string, imp: 1 | 2 | 3 | 4, min: number, reason: string): Task {
     return {
       id: uid(),
       title,
-      energy,
       imp,
       min,
       due: '',
@@ -47,13 +43,13 @@ export function seedState(): AppState {
     plan: null,
     habits: [...DEFAULT_HABITS],
     tasks: [
-      ex('Reply to emails (9:00 check)', 1, 3, 15, 'Quick win that unblocks other people.'),
-      ex('Send 2 tailored job applications', 3, 3, 60, 'Needs focus to tailor each one well.'),
-      ex('Follow up on last week’s applications', 1, 2, 15, 'Short messages, little thinking.'),
-      ex('Update the application tracker', 1, 2, 10, 'Routine admin.'),
-      ex('Build one portfolio project step', 3, 2, 90, 'Deep work, best done at peak energy.'),
-      ex('Improve CV bullet points', 2, 2, 30, 'Steady editing, moderate focus.'),
-      ex('Message two former colleagues', 2, 1, 20, 'Useful, but not time sensitive.')
+      ex('Reply to emails (9:00 check)', 4, 15, 'Quick win that unblocks other people.'),
+      ex('Send 2 tailored job applications', 4, 60, 'Needs focus to tailor each one well.'),
+      ex('Follow up on last week’s applications', 2, 15, 'Short messages, little thinking.'),
+      ex('Update the application tracker', 2, 10, 'Routine admin.'),
+      ex('Build one portfolio project step', 2, 90, 'Deep work, best done at peak energy.'),
+      ex('Improve CV bullet points', 2, 30, 'Steady editing, moderate focus.'),
+      ex('Message two former colleagues', 1, 20, 'Useful, but not time sensitive.')
     ]
   };
 }
@@ -75,11 +71,19 @@ export function loadState(): AppState {
           parsed.energy = 2;
           parsed.energyDay = keyOf(new Date());
         }
+        const urgencyMigrated = localStorage.getItem('energy-planner-urgency-v2') === '1';
         parsed.tasks.forEach((t) => {
-          if (t.est === undefined) t.est = true;
+          if (!urgencyMigrated) {
+            if (t.imp === 3) t.imp = 4;
+            else if (t.imp === 2) t.imp = 3;
+          }
+          if (t.est === undefined) t.est = (t.min || 0) > 0;
+          if (t.due === undefined) t.due = '';
+          if (t.min === undefined) t.min = 0;
           if (t.locked === undefined) t.locked = false;
           if (t.reason === undefined) t.reason = '';
         });
+        if (!urgencyMigrated) localStorage.setItem('energy-planner-urgency-v2', '1');
         return parsed as AppState;
       }
     }

@@ -75,20 +75,15 @@
               <label class="grow" for="t-title">Task
                 <input id="t-title" type="text" placeholder="e.g. Tailor CV for the next application" required maxlength="140" />
               </label>
-              <label for="t-energy">Task energy (optional)
-                <select id="t-energy">
-                  <option value="">Choose later</option>
-                  <option value="1">Low</option>
-                  <option value="2">Medium</option>
-                  <option value="3">High</option>
-                </select>
-              </label>
               <label for="t-due">Due (optional)
                 <input id="t-due" type="date" />
               </label>
+              <label for="t-minutes">Estimate time (optional)
+                <input id="t-minutes" type="number" min="5" max="360" step="5" placeholder="Minutes" />
+              </label>
               <button class="primary" type="submit">Add</button>
             </form>
-            <p class="muted hint-line">Only type what the task is. Energy, time, and urgency can be set or estimated.</p>
+            <p class="muted hint-line">Only type what the task is. Energy, time, urgency, and due date can be set later.</p>
             <details class="hint-line">
               <summary>Paste a list instead</summary>
               <p class="muted">One task per line.</p>
@@ -112,21 +107,22 @@
             </div>
             <p class="status ai-status-line" id="ai-status" role="status"></p>
             <p class="muted" id="plan-note"></p>
-            <nav class="task-filters" aria-label="Filter tasks by due date">
-              <button type="button" class="pill imp active" data-task-filter="all">All</button>
-              <button type="button" class="pill imp" data-task-filter="today">Today</button>
-              <button type="button" class="pill imp" data-task-filter="tomorrow">Tomorrow</button>
-              <button type="button" class="pill imp" data-task-filter="week">This week</button>
-            </nav>
             <ol id="list-now"></ol>
           </section>
 
-          <section class="panel later-panel" aria-labelledby="h-later">
+          <section class="panel" aria-labelledby="h-dumps">
             <div class="sec-head">
-              <h2 id="h-later">Save for more energy</h2>
-              <span class="muted" id="later-meta"></span>
+              <h2 id="h-dumps">Dumps</h2>
+              <span class="muted" id="dumps-meta"></span>
             </div>
-            <ol id="list-later"></ol>
+            <p class="muted">Stored tasks that are not scheduled for today.</p>
+            <nav class="task-filters" aria-label="Filter dumped tasks">
+              <button type="button" class="pill imp active" data-dump-filter="all">All</button>
+              <button type="button" class="pill imp" data-dump-filter="tomorrow">Tomorrow</button>
+              <button type="button" class="pill imp" data-dump-filter="week">This week</button>
+              <button type="button" class="pill imp" data-dump-filter="later">Later</button>
+            </nav>
+            <ol id="list-dumps"></ol>
           </section>
 
           <section class="panel" aria-labelledby="h-done" id="done-panel" hidden>
@@ -168,10 +164,11 @@
               <option value="gemini">Google Gemini</option>
               <option value="claude">Anthropic Claude</option>
               <option value="mistral">Mistral</option>
+              <option value="ollama">Ollama</option>
             </select>
           </label>
           <label for="ai-api-key-input">AI API Key
-            <input id="ai-api-key-input" type="password" placeholder="API key" autocomplete="off" />
+            <input id="ai-api-key-input" type="password" placeholder="API key (not needed for Ollama)" autocomplete="off" />
           </label>
           <label for="ai-endpoint-input">AI endpoint
             <input id="ai-endpoint-input" type="url" placeholder="https://api.example.com/v1/chat/completions" autocomplete="off" />
@@ -195,17 +192,21 @@
           <button type="button" class="del" id="task-details-close" aria-label="Close">×</button>
         </div>
         <form id="task-details-form">
-          <p class="task-details-title" id="task-details-title"></p>
+          <label for="task-name-input">Task name
+            <input id="task-name-input" type="text" maxlength="140" required />
+          </label>
           <label for="task-due-input">Due date
             <input id="task-due-input" type="date" />
           </label>
+          <p class="task-detail-status" id="task-due-status">No due date</p>
           <div class="due-presets" aria-label="Due date presets">
             <button type="button" class="pill imp" data-due-preset="today">Today</button>
             <button type="button" class="pill imp" data-due-preset="tomorrow">Tomorrow</button>
             <button type="button" class="pill imp" data-due-preset="week">This week</button>
+            <button type="button" class="pill imp" data-due-preset="none">No due date</button>
           </div>
           <label for="task-minutes-input">Estimated time
-            <input id="task-minutes-input" type="number" min="5" max="360" step="5" />
+            <input id="task-minutes-input" type="number" min="5" max="360" step="5" placeholder="Not estimated yet" />
           </label>
           <div class="actions" style="margin-top: 18px; justify-content: flex-end;">
             <button class="ghost" type="button" id="task-details-cancel">Cancel</button>

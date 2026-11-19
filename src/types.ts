@@ -5,14 +5,13 @@
 /** Energy level: 1 = Low, 2 = Medium, 3 = High. */
 export type EnergyLevel = 1 | 2 | 3;
 
-/** Urgency level: 1 = Later, 2 = This week, 3 = Today. */
-export type UrgencyLevel = 1 | 2 | 3;
+/** Urgency level: 1 = Later, 2 = Tomorrow, 3 = This week, 4 = Today. */
+export type UrgencyLevel = 1 | 2 | 3 | 4;
 
 /** Represents a user task with prioritization metadata. */
 export interface Task {
   id: string;
   title: string;
-  energy: EnergyLevel;
   imp: UrgencyLevel;
   min: number;
   due: string;
@@ -21,6 +20,11 @@ export interface Task {
   est: boolean;
   locked: boolean;
   reason: string;
+  estimateSource?: 'ai' | 'heuristic';
+  fit?: 'fits' | 'stretch' | 'too_hard';
+  confidence?: 'low' | 'medium' | 'high';
+  firstStep?: { title: string; minutes: number };
+  subtasks?: { title: string; minutes: number; energy: EnergyLevel }[];
 }
 
 /** Specific target duration and instructions for a habit at a given energy level. */
@@ -62,16 +66,20 @@ export interface MailSlot {
   fri?: boolean;
 }
 
-/** Result shape returned by the AI prioritization API. */
+/** Estimate returned for one task by the AI prioritization API. */
 export interface AITaskResult {
   id: string;
-  energy: number;
   minutes: number;
-  urgency: number;
+  energy: EnergyLevel;
+  confidence: 'low' | 'medium' | 'high';
   reason: string;
+  subtasks?: { title: string; minutes: number; energy: EnergyLevel }[];
+  firstStep?: { title: string; minutes: number; energy: EnergyLevel };
 }
 
+/** Result shape returned by the AI prioritization API. */
 export interface AIPrioritizationResult {
   tasks: AITaskResult[];
   order: string[];
 }
+

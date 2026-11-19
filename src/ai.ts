@@ -1,150 +1,116 @@
-import type { AIPrioritizationResult, EnergyLevel } from './types';
-import { EN_NAMES } from './constants';
 import { state } from './state';
 import { getAIConfig, requestAIText } from './ai-client';
+import { keyOf } from './utils';
+import {
+  buildPrompt,
+  estimateHeuristic,
+  parseEstimates,
+  rankTasks,
+  type Energy,
+  type PrioritizeResult,
+  type TaskInput,
+} from './prioritize-core';
 
-function applyMediumFallback(commit: () => void): void {
-  state.tasks
-    .filter((task) => !task.done && !task.locked)
-    .forEach((task) => {
-      task.energy = 2;
-      task.imp = 2;
-      task.min = task.min || 30;
-      task.reason = task.reason || 'Estimated as medium effort.';
-      task.est = true;
-    });
+const TIMEOUT_MS = 90_000;
+
+function isTodayTask(task: { imp: number; due: string }, today: string): boolean {
+  return task.imp === 4 || (!!task.due && task.due <= today);
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('The AI took too long. Try again.')), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+function applyResult(result: PrioritizeResult, commit: () => void): void {
+  const byId = new Map(state.tasks.map((task) => [task.id, task]));
+  result.ranked.forEach((ranked) => {
+    const task = byId.get(ranked.id);
+    if (!task) return;
+    task.min = ranked.minutes;
+    task.est = true;
+    task.reason = ranked.reason;
+    task.estimateSource = ranked.source;
+    task.fit = ranked.fit;
+    task.confidence = ranked.confidence;
+    task.firstStep = ranked.firstStep ? {
+      title: ranked.firstStep.title,
+      minutes: ranked.firstStep.minutes
+    } : undefined;
+    task.subtasks = ranked.subtasks?.map((subtask) => ({
+      title: subtask.title,
+      minutes: subtask.minutes,
+      energy: subtask.energy
+    }));
+  });
+  state.plan = {
+    energy: result.energy,
+    order: result.ranked.map((ranked) => ranked.id),
+    at: Date.now()
+  };
   commit();
 }
 
-export async function estimateTask(
-  taskId: string,
+export async function prioritizeTasks(
   onStatus: (message: string) => void,
-  commit: () => void
-): Promise<void> {
-  const task = state.tasks.find((item) => item.id === taskId);
-  if (!task || task.locked) return;
+  commit: () => void,
+): Promise<PrioritizeResult | null> {
+  const energy = state.energy as Energy;
+  const today = keyOf(new Date());
+  const todayTasks = state.tasks.filter((task) => !task.done && isTodayTask(task, today));
+  if (!todayTasks.length) {
+    onStatus('No tasks marked for today.');
+    return null;
+  }
 
+  const inputs: TaskInput[] = todayTasks.map((task) => ({
+    id: task.id,
+    title: task.title,
+    due: task.due || ''
+  }));
   const config = getAIConfig();
-  if (!config.apiKey || !config.endpoint || !config.model) {
-    task.energy = 2;
-    task.imp = 2;
-    task.min = 30;                   
-    task.reason = 'Estimated as medium effort.';
-    task.est = true;
-    commit();
-    onStatus('AI is not configured — task added with Medium defaults.');
-    return;
-  }
-
-  const prompt = `Estimate this task's required effort. Return only valid JSON:
-{"energy":1|2|3,"minutes":5-360,"reason":"one short sentence"}
-
-Task: ${task.title}${task.due ? `; due: ${task.due}` : ''}`;
-
-  try {
-    const raw = await requestAIText(config, prompt);
-    const json = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-    const result = JSON.parse(json) as { energy?: number; minutes?: number; reason?: string };
-
-    const energy = Number(result.energy);
-    task.energy = [1, 2, 3].includes(energy) ? energy as EnergyLevel : 2;
-    task.min = Math.max(5, Math.min(360, Math.round((Number(result.minutes) || 30) / 5) * 5));
-    task.reason = typeof result.reason === 'string' ? result.reason.slice(0, 120) : 'Estimated as medium effort.';
-    task.est = true;
-    commit();
-    onStatus(`Task estimated as ${EN_NAMES[task.energy].toLowerCase()} energy.`);
-  } catch (error) {
-    console.error('Task estimation error:', error);
-    task.energy = 2;
-    task.imp = 2;
-    task.min = task.min || 30;
-    task.reason = 'Estimated as medium effort.';
-    task.est = true;
-    commit();
-    onStatus('AI estimation failed — task was estimated as medium.');
-  }
-}
-
-export async function prioritizeTasks(onStatus: (message: string) => void, commit: () => void): Promise<void> {
-  const config = getAIConfig();
-  if (!config.apiKey || !config.endpoint || !config.model) {
-    applyMediumFallback(commit);
-    onStatus('AI is not configured — enter it in Settings.');
-    ($dialog('settings-dialog')).showModal();
-    return;
-  }
-
-  const undone = state.tasks.filter((task) => !task.done);
-  if (!undone.length) {
-    onStatus('No active tasks to prioritize.');
-    return;
+  const configured = !!config.endpoint && !!config.model
+    && (config.provider === 'ollama' || !!config.apiKey);
+  if (!configured) {
+    const result = rankTasks(inputs, new Map(), energy, today);
+    applyResult(result, commit);
+    onStatus('Heuristic estimates used: AI is not configured. Add your key in Settings.');
+    $dialog('settings-dialog').showModal();
+    return result;
   }
 
   const aiButton = document.getElementById('ai-btn') as HTMLButtonElement | null;
   if (aiButton) aiButton.disabled = true;
-  onStatus('Asking AI…');
-
-  const payload = undone.map((task) => ({
-    id: task.id,
-    title: task.title,
-    locked: task.locked,
-    lockedEnergy: task.locked ? task.energy : undefined,
-    lockedUrgency: task.locked ? task.imp : undefined,
-    due: task.due || undefined
-  }));
-  const prompt = `You are an energy-aware productivity assistant.
-
-Current energy: ${EN_NAMES[state.energy]} (${state.energy}/3).
-For each task, return valid JSON with id, energy (1|2|3), minutes (5-360), urgency (1|2|3), and reason (max 120 chars).
-Locked tasks keep lockedEnergy and lockedUrgency exactly.
-Return: {"tasks":[{"id":"...","energy":1,"minutes":30,"urgency":2,"reason":"..."}],"order":["id"]}.
-
-Tasks: ${JSON.stringify(payload)}`;
+  onStatus('Asking AI...');
 
   try {
-    const raw = await requestAIText(config, prompt);
-    const json = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-    const result = JSON.parse(json) as AIPrioritizationResult;
-    if (!Array.isArray(result.tasks)) throw new Error('Invalid AI response shape');
-
-    const byId = new Map(undone.map((task) => [task.id, task]));
-    result.tasks.forEach((item) => {
-      const task = byId.get(item.id);
-      if (!task) return;
-      if (!task.locked) {
-        const energy = Number(item.energy);
-        const urgency = Number(item.urgency);
-        task.energy = [1, 2, 3].includes(energy)
-          ? energy as EnergyLevel
-          : 2;
-        task.imp = [1, 2, 3].includes(urgency)
-          ? urgency as 1 | 2 | 3
-          : 2;
-      }
-      task.min = Math.max(5, Math.min(360, Math.round((Number(item.minutes) || 30) / 5) * 5));
-      task.reason = typeof item.reason === 'string' ? item.reason.slice(0, 120) : '';
-      task.est = true;
+    const weekday = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
+    const raw = await withTimeout(
+      requestAIText(config, buildPrompt(inputs, energy, today, weekday)),
+      TIMEOUT_MS,
+    );
+    const { estimates, missing } = parseEstimates(raw, inputs.map((input) => input.id));
+    missing.forEach((id) => {
+      const task = inputs.find((input) => input.id === id);
+      if (task) estimates.set(id, estimateHeuristic(task));
     });
-    undone
-      .filter((task) => !task.locked && !task.est)
-      .forEach((task) => {
-        task.energy = 2;
-        task.imp = 2;
-        task.min = task.min || 30;
-        task.reason = task.reason || 'Estimated as medium effort.';
-        task.est = true;
-      });
-
-    const validOrder = Array.isArray(result.order)
-      ? result.order.filter((id) => byId.has(id) && !byId.get(id)!.done)
-      : [];
-    state.plan = { energy: state.energy, order: validOrder, at: Date.now() };
-    commit();
-    onStatus(`Done — tasks prioritized for ${EN_NAMES[state.energy].toLowerCase()} energy.`);
+    const result = rankTasks(inputs, estimates, energy, today);
+    applyResult(result, commit);
+    onStatus(missing.length
+      ? `Heuristic estimates used for ${missing.length} task(s): the AI skipped them. Remaining tasks use AI estimates.`
+      : 'AI estimates used. Today tasks prioritized.');
+    return result;
   } catch (error) {
     console.error('AI prioritization error:', error);
-    applyMediumFallback(commit);
-    onStatus(`AI error: ${error instanceof Error ? error.message : String(error)}`);
+    const result = rankTasks(inputs, new Map(), energy, today);
+    applyResult(result, commit);
+    onStatus(`Heuristic estimates used: ${error instanceof Error ? error.message : String(error)}.`);
+    return result;
   } finally {
     if (aiButton) aiButton.disabled = false;
   }

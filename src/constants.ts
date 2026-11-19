@@ -7,7 +7,7 @@ export const STORAGE_KEY = 'energy-planner-v1';
 export const EN_NAMES: Record<number, string> = { 1: 'Low', 2: 'Medium', 3: 'High' };
 
 /** User-facing labels for urgency/importance levels. */
-export const IM_NAMES: Record<number, string> = { 1: 'Later', 2: 'This week', 3: 'Today' };
+export const IM_NAMES: Record<number, string> = { 1: 'Later', 2: 'Tomorrow', 3: 'This week', 4: 'Today' };
 
 /** Descriptive hints explaining how to spend each energy tier. */
 export const HINTS: Record<number, string> = {

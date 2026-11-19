@@ -3,31 +3,48 @@ import { DEFAULT_HABITS } from './constants';
 import { state, newTask } from './state';
 import { $, keyOf } from './utils';
 import { toggleSlot } from './scoring';
-import { estimateTask, prioritizeTasks } from './ai';
+import { prioritizeTasks } from './ai';
 import { AI_ENDPOINTS, getAIConfig } from './ai-client';
-import { setTaskDueFilter } from './render';
+import { setDumpFilter } from './render';
 
 export function setupEvents(commit: () => void): void {
-  document.querySelectorAll<HTMLButtonElement>('[data-task-filter]').forEach((button) => {
+  document.querySelectorAll<HTMLButtonElement>('[data-dump-filter]').forEach((button) => {
     button.addEventListener('click', () => {
-      document.querySelectorAll<HTMLButtonElement>('[data-task-filter]').forEach((item) => item.classList.remove('active'));
+      document.querySelectorAll<HTMLButtonElement>('[data-dump-filter]').forEach((item) => item.classList.remove('active'));
       button.classList.add('active');
-      setTaskDueFilter(button.getAttribute('data-task-filter') as 'all' | 'today' | 'tomorrow' | 'week');
+      setDumpFilter(button.getAttribute('data-dump-filter') as 'all' | 'tomorrow' | 'week' | 'later');
       commit();
     });
   });
   const taskDetailsDialog = $<HTMLDialogElement>('task-details-dialog');
+  const taskNameInput = $<HTMLInputElement>('task-name-input');
   const taskDueInput = $<HTMLInputElement>('task-due-input');
   const taskMinutesInput = $<HTMLInputElement>('task-minutes-input');
+  const taskDueStatus = $('task-due-status');
   let editingTaskId: string | null = null;
 
-  function openTaskDetails(task: { id: string; title: string; due: string; min: number }): void {
+  function openTaskDetails(task: { id: string; title: string; due: string; min: number; est: boolean }): void {
     editingTaskId = task.id;
-    $('task-details-title').textContent = task.title;
+    taskNameInput.value = task.title;
     taskDueInput.value = task.due || '';
-    taskMinutesInput.value = String(task.min || 30);
+    taskDueStatus.textContent = task.due ? 'Due date set' : 'No due date';
+    taskMinutesInput.value = task.est && task.min ? String(task.min) : '';
     taskDetailsDialog.showModal();
   }
+
+  taskDueInput.addEventListener('change', () => {
+    taskDueStatus.textContent = taskDueInput.value ? 'Due date set' : 'No due date';
+  });
+
+  taskMinutesInput.addEventListener('input', () => {
+    if (!taskMinutesInput.value) {
+      taskMinutesInput.setAttribute('placeholder', 'Not estimated yet');
+    }
+  });
+
+  taskDetailsDialog.addEventListener('close', () => {
+    editingTaskId = null;
+  });
 
   $('task-details-close').addEventListener('click', () => taskDetailsDialog.close());
   $('task-details-cancel').addEventListener('click', () => taskDetailsDialog.close());
@@ -36,11 +53,21 @@ export function setupEvents(commit: () => void): void {
     if (!editingTaskId) return;
     const task = state.tasks.find((item) => item.id === editingTaskId);
     if (!task) return;
+    const title = taskNameInput.value.trim();
+    if (!title) {
+      taskNameInput.focus();
+      return;
+    }
+    task.title = title;
     task.due = taskDueInput.value;
-    task.min = Math.max(5, Math.min(360, Number(taskMinutesInput.value) || 30));
-    task.est = true;
+    if (taskMinutesInput.value.trim()) {
+      task.min = Math.max(5, Math.min(360, Number(taskMinutesInput.value)));
+      task.est = true;
+    } else {
+      task.min = 0;
+      task.est = false;
+    }
     taskDetailsDialog.close();
-    editingTaskId = null;
     commit();
   });
 
@@ -48,6 +75,11 @@ export function setupEvents(commit: () => void): void {
     button.addEventListener('click', () => {
       const preset = button.getAttribute('data-due-preset');
       const date = new Date();
+      if (preset === 'none') {
+        taskDueInput.value = '';
+        taskDueStatus.textContent = 'No due date';
+        return;
+      }
       if (preset === 'tomorrow') date.setDate(date.getDate() + 1);
       if (preset === 'week') {
         const daysUntilSunday = (7 - date.getDay()) % 7;
@@ -57,13 +89,7 @@ export function setupEvents(commit: () => void): void {
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
       taskDueInput.value = `${year}-${month}-${day}`;
-      if (!editingTaskId) return;
-      const task = state.tasks.find((item) => item.id === editingTaskId);
-      if (!task) return;
-      task.due = taskDueInput.value;
-      taskDetailsDialog.close();
-      editingTaskId = null;
-      commit();
+      taskDueStatus.textContent = 'Due date set';
     });
   });
 
@@ -108,12 +134,12 @@ export function setupEvents(commit: () => void): void {
     const task = state.tasks[index];
     const action = button.getAttribute('data-act');
     if (action === 'done') task.done = !task.done;
-    if (action === 'energy') {
-      task.energy = ((task.energy % 3) + 1) as EnergyLevel;
+    if (action === 'imp') {
+      task.imp = ((task.imp % 4) + 1) as 1 | 2 | 3 | 4;
       task.locked = true;
     }
-    if (action === 'imp') {
-      task.imp = ((task.imp % 3) + 1) as 1 | 2 | 3;
+    if (action === 'today') {
+      task.imp = 4;
       task.locked = true;
     }
     if (action === 'details') openTaskDetails(task);
@@ -121,7 +147,7 @@ export function setupEvents(commit: () => void): void {
     if (action !== 'details') commit();
   }
 
-  ['list-now', 'list-later', 'list-done'].forEach((id) => {
+  ['list-now', 'list-dumps', 'list-done'].forEach((id) => {
     $(id).addEventListener('click', onTaskList);
   });
 
@@ -129,29 +155,16 @@ export function setupEvents(commit: () => void): void {
     event.preventDefault();
     const titleInput = $<HTMLInputElement>('t-title');
     const dueInput = $<HTMLInputElement>('t-due');
-    const energyInput = $<HTMLSelectElement>('t-energy');
+    const minutesInput = $<HTMLInputElement>('t-minutes');
     const title = titleInput.value.trim();
     if (!title) return;
-    const rawEnergy = Number(energyInput.value);
-    const energy = rawEnergy === 1 || rawEnergy === 2 || rawEnergy === 3
-      ? rawEnergy as EnergyLevel
-      : undefined;
-    const task = newTask(title, dueInput.value, energy);
+    const task = newTask(title, dueInput.value, Number(minutesInput.value));
     state.tasks.push(task);
     titleInput.value = '';
     dueInput.value = '';
-    energyInput.value = '';
+    minutesInput.value = '';
     titleInput.focus();
-    if (!energy) {
-      void estimateTask(
-        task.id,
-        (message) => { $('ai-status').textContent = message; },
-        commit
-      );
-      $('ai-status').textContent = `Estimating "${title}"…`;
-    } else {
-      commit();
-    }
+    commit();
   });
 
   $('bulk-add').addEventListener('click', () => {
@@ -270,7 +283,7 @@ export function setupEvents(commit: () => void): void {
   });
   $<HTMLFormElement>('settings-form').addEventListener('submit', (event) => {
     event.preventDefault();
-    const provider = providerInput.value as 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral';
+    const provider = providerInput.value as 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral' | 'ollama';
     const key = keyInput.value.trim();
     const endpoint = endpointInput.value.trim();
     const model = modelInput.value.trim();
@@ -281,7 +294,7 @@ export function setupEvents(commit: () => void): void {
     else localStorage.removeItem('ai_endpoint');
     if (model) localStorage.setItem('ai_model', model);
     else localStorage.removeItem('ai_model');
-    $('ai-status').textContent = key && endpoint && model
+    $('ai-status').textContent = endpoint && model && (provider === 'ollama' || !!key)
       ? 'AI configuration saved.'
       : 'AI configuration cleared or incomplete.';
     settingsDialog.close();
