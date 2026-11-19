@@ -1,10 +1,15 @@
-import type { Habit, Task } from './types';
-import { EN_NAMES, HINTS, IM_NAMES } from './constants';
-import { state } from './state';
-import { $, esc, keyOf, dueLabel, getPast7Days } from './utils';
-import { orderNow, streak, todaySlots } from './scoring';
+import type { Habit, Task } from '../../../shared/domain-types';
+import { EN_NAMES, HINTS, IM_NAMES } from '../../../shared/constants';
+import { state } from '../data/app-state';
+import { $, esc, keyOf, dueLabel, getPast7Days } from '../../../shared/utils';
+import { orderNow, streak, todaySlots } from '../domain/scoring';
+import {
+  isTodayTask,
+  matchesDumpFilter as matchesTaskDumpFilter,
+  type DumpFilter as TaskDumpFilter
+} from '../task-view-model';
 
-export type DumpFilter = 'all' | 'tomorrow' | 'week' | 'later';
+export type DumpFilter = TaskDumpFilter;
 export let dumpFilter: DumpFilter = 'all';
 
 export function setDumpFilter(filter: DumpFilter): void {
@@ -12,34 +17,7 @@ export function setDumpFilter(filter: DumpFilter): void {
 }
 
 function matchesDumpFilter(task: Task): boolean {
-  if (dumpFilter === 'all') return true;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  let dueDate: Date | null = null;
-  if (task.due) {
-    const [year, month, day] = task.due.split('-').map(Number);
-    dueDate = new Date(year, month - 1, day);
-    dueDate.setHours(0, 0, 0, 0);
-  }
-
-  if (dumpFilter === 'tomorrow') {
-    return task.imp === 2 || (!!dueDate && dueDate.getTime() === tomorrow.getTime());
-  }
-
-  const weekEnd = new Date(today);
-  weekEnd.setDate(weekEnd.getDate() + ((7 - weekEnd.getDay()) % 7));
-  if (dumpFilter === 'later') {
-    const dueTomorrow = !!dueDate && dueDate.getTime() === tomorrow.getTime();
-    const dueThisWeek = !!dueDate && dueDate > tomorrow && dueDate <= weekEnd;
-    return task.imp === 1 && !dueTomorrow && !dueThisWeek;
-  }
-  const markedThisWeek = task.imp === 3;
-  const dueThisWeek = !!dueDate && dueDate > tomorrow && dueDate <= weekEnd;
-  return markedThisWeek || dueThisWeek;
+  return matchesTaskDumpFilter(task, dumpFilter);
 }
 
 function taskHTML(task: Task, _first: boolean, dump = false): string {
@@ -156,16 +134,7 @@ export function render(): void {
   $('habit-count').textContent = `${doneHabits} of ${expectedHabits} done`;
 
   const open = state.tasks.filter((task) => !task.done);
-  const today = open.filter((task) => {
-    if (task.imp === 4) return true;
-    if (!task.due) return false;
-    const [year, month, day] = task.due.split('-').map(Number);
-    const due = new Date(year, month - 1, day);
-    due.setHours(0, 0, 0, 0);
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    return due <= now;
-  });
+  const today = open.filter((task) => isTodayTask(task));
   const now = orderNow(today, energy);
   const todayIds = new Set(today.map((task) => task.id));
   const dumps = open.filter((task) => !todayIds.has(task.id));

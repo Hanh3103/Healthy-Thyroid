@@ -8,7 +8,7 @@ import {
   fitOf,
   parseEstimates,
   rankTasks,
-} from '../src/prioritize-core.ts';
+} from '../src/features/energy-planner/domain/prioritize-core.ts';
 
 const TODAY = '2026-11-18';
 

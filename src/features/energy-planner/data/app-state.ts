@@ -1,6 +1,7 @@
-import type { AppState, Task } from './types';
-import { STORAGE_KEY, DEFAULT_HABITS } from './constants';
-import { keyOf, uid } from './utils';
+import type { AppState, Task } from '../../../shared/domain-types';
+import { STORAGE_KEY, DEFAULT_HABITS } from '../../../shared/constants';
+import { keyOf, uid } from '../../../shared/utils';
+import type { AppStateRepository } from '../../../shared/contracts';
 
 /** Factory function creating a new Task. */
 export function newTask(title: string, due?: string, minutes?: number): Task {
@@ -96,6 +97,11 @@ export function loadState(): AppState {
 /** Global in-memory application state singleton. */
 export const state: AppState = loadState();
 
+export const appStateRepository: AppStateRepository = {
+  load: loadState,
+  save: saveState
+};
+
 /** Persists the current state to localStorage. */
 export function saveState(): void {
   try {
@@ -104,3 +110,4 @@ export function saveState(): void {
     console.error('Failed to save state to localStorage:', e);
   }
 }
+

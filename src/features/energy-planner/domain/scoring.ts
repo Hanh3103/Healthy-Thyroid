@@ -1,7 +1,7 @@
-import type { Task, Plan, MailSlot } from './types';
-import { state } from './state';
-import { keyOf, daysUntil } from './utils';
-import { MAIL_SLOTS } from './constants';
+import type { Task, Plan, MailSlot } from '../../../shared/domain-types';
+import { state } from '../data/app-state';
+import { keyOf, daysUntil } from '../../../shared/utils';
+import { MAIL_SLOTS } from '../../../shared/constants';
 
 /** Computes priority score for a task matching current energy level. */
 export function score(t: Task): number {

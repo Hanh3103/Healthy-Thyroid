@@ -1,6 +1,6 @@
-import { state } from './state';
-import { getAIConfig, requestAIText } from './ai-client';
-import { keyOf } from './utils';
+import { state } from '../data/app-state';
+import { createAITextProvider, getAIConfig } from '../../../shared/ai/ai-client';
+import { keyOf } from '../../../shared/utils';
 import {
   buildPrompt,
   estimateHeuristic,
@@ -9,7 +9,7 @@ import {
   type Energy,
   type PrioritizeResult,
   type TaskInput,
-} from './prioritize-core';
+} from '../domain/prioritize-core';
 
 const TIMEOUT_MS = 90_000;
 
@@ -90,8 +90,9 @@ export async function prioritizeTasks(
 
   try {
     const weekday = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
+    const aiProvider = createAITextProvider();
     const raw = await withTimeout(
-      requestAIText(config, buildPrompt(inputs, energy, today, weekday)),
+      aiProvider.complete(buildPrompt(inputs, energy, today, weekday)),
       TIMEOUT_MS,
     );
     const { estimates, missing } = parseEstimates(raw, inputs.map((input) => input.id));

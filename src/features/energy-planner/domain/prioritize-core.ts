@@ -113,7 +113,7 @@ export function estimateHeuristic(task: TaskInput): Estimate {
 
 export function buildPrompt(tasks: TaskInput[], currentEnergy: Energy, today: string, weekday: string): string {
   return `You are prioritizing tasks for ${weekday} ${today}. The user's energy today is ${currentEnergy} of 3 (${currentEnergy === 1 ? 'Low' : currentEnergy === 2 ? 'Medium' : 'High'}).
-Estimate every task from its title and due date. Never use a userEstimate field.
+Estimate every task from its title and due date. Ignore any existing time or energy estimate provided by the user.
 Return valid JSON only with tasks containing id, minutes, energy (1-3), confidence (low|medium|high), reason, optional subtasks [{title,minutes,energy}], and optional firstStep {title,minutes,energy}.
 Ranking should prioritize overdue and today tasks, then energy fit and due date, and break ties by shorter time.
 Tasks: ${JSON.stringify(tasks.map((task) => ({ id: task.id, title: task.title, due: task.due || null })))}`
@@ -191,7 +191,10 @@ export function parseEstimates(raw: string, taskIds: string[]): { estimates: Map
     if (item.firstStep && typeof item.firstStep === 'object') {
       const candidate = item.firstStep as Record<string, unknown>;
       const title = typeof candidate.title === 'string' ? candidate.title.trim() : '';
-      const stepMinutes = clampEstimateMinutes(candidate.minutes);
+      const rawStepMinutes = clampEstimateMinutes(candidate.minutes);
+      const stepMinutes = rawStepMinutes === null
+        ? null
+        : Math.max(5, Math.min(30, rawStepMinutes));
       const stepEnergy = validEnergy(candidate.energy);
       if (title && stepMinutes !== null && stepEnergy !== null) {
         firstStep = { title, minutes: stepMinutes, energy: stepEnergy };

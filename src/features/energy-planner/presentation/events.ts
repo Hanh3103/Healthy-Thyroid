@@ -1,11 +1,20 @@
-import type { AppState, EnergyLevel, Habit } from './types';
-import { DEFAULT_HABITS } from './constants';
-import { state, newTask } from './state';
-import { $, keyOf } from './utils';
-import { toggleSlot } from './scoring';
-import { prioritizeTasks } from './ai';
-import { AI_ENDPOINTS, getAIConfig } from './ai-client';
+import type { AppState, EnergyLevel, Habit } from '../../../shared/domain-types';
+import { DEFAULT_HABITS } from '../../../shared/constants';
+import { state } from '../data/app-state';
+import { $, keyOf } from '../../../shared/utils';
+import { toggleSlot } from '../domain/scoring';
+import { prioritizeTasks } from '../application/prioritize';
+import { AI_ENDPOINTS, getAIConfig } from '../../../shared/ai/ai-client';
 import { setDumpFilter } from './render';
+import {
+  createTask,
+  editTask,
+  toggleTaskDone,
+  cycleTaskUrgency,
+  moveTaskToToday,
+  removeTask
+} from '../task-use-cases';
+import { toggleDailyHabit } from '../habit-use-cases';
 
 export function setupEvents(commit: () => void): void {
   document.querySelectorAll<HTMLButtonElement>('[data-dump-filter]').forEach((button) => {
@@ -58,15 +67,9 @@ export function setupEvents(commit: () => void): void {
       taskNameInput.focus();
       return;
     }
-    task.title = title;
-    task.due = taskDueInput.value;
-    if (taskMinutesInput.value.trim()) {
-      task.min = Math.max(5, Math.min(360, Number(taskMinutesInput.value)));
-      task.est = true;
-    } else {
-      task.min = 0;
-      task.est = false;
-    }
+    editTask(task, title, taskDueInput.value, taskMinutesInput.value.trim()
+      ? Number(taskMinutesInput.value)
+      : 0);
     taskDetailsDialog.close();
     commit();
   });
@@ -116,9 +119,8 @@ export function setupEvents(commit: () => void): void {
     if (!habitButton) return;
     const habitId = habitButton.getAttribute('data-habit');
     if (!habitId) return;
-    const key = keyOf(new Date());
-    state.log[key] = state.log[key] || {};
-    state.log[key][habitId] = !state.log[key][habitId];
+    const habit = state.habits.find((item) => item.id === habitId);
+    if (habit) toggleDailyHabit(state, habit);
     commit();
   });
 
@@ -133,17 +135,15 @@ export function setupEvents(commit: () => void): void {
 
     const task = state.tasks[index];
     const action = button.getAttribute('data-act');
-    if (action === 'done') task.done = !task.done;
+    if (action === 'done') toggleTaskDone(task);
     if (action === 'imp') {
-      task.imp = ((task.imp % 4) + 1) as 1 | 2 | 3 | 4;
-      task.locked = true;
+      cycleTaskUrgency(task);
     }
     if (action === 'today') {
-      task.imp = 4;
-      task.locked = true;
+      moveTaskToToday(task);
     }
     if (action === 'details') openTaskDetails(task);
-    if (action === 'del') state.tasks.splice(index, 1);
+    if (action === 'del' && id) removeTask(state.tasks, id);
     if (action !== 'details') commit();
   }
 
@@ -158,7 +158,7 @@ export function setupEvents(commit: () => void): void {
     const minutesInput = $<HTMLInputElement>('t-minutes');
     const title = titleInput.value.trim();
     if (!title) return;
-    const task = newTask(title, dueInput.value, Number(minutesInput.value));
+    const task = createTask(title, dueInput.value, Number(minutesInput.value));
     state.tasks.push(task);
     titleInput.value = '';
     dueInput.value = '';
@@ -173,7 +173,7 @@ export function setupEvents(commit: () => void): void {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .forEach((line) => state.tasks.push(newTask(line.slice(0, 140))));
+      .forEach((line) => state.tasks.push(createTask(line.slice(0, 140))));
     bulk.value = '';
     commit();
   });

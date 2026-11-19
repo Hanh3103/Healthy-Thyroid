@@ -1,3 +1,5 @@
+import type { TextAIProvider } from '../contracts';
+
 export type AIProvider = 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral' | 'ollama';
 
 export interface AIConfig {
@@ -5,6 +7,13 @@ export interface AIConfig {
   apiKey: string;
   endpoint: string;
   model: string;
+}
+
+export function createAITextProvider(): TextAIProvider {
+  const config = getAIConfig();
+  return {
+    complete: (prompt: string) => requestAIText(config, prompt)
+  };
 }
 
 export const AI_ENDPOINTS: Record<Exclude<AIProvider, 'custom'>, { endpoint: string; model: string }> = {

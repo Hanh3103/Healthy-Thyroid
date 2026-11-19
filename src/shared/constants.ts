@@ -1,4 +1,4 @@
-import type { Habit, MailSlot } from './types';
+import type { Habit, MailSlot } from './domain-types';
 
 /** Key used for persistent browser storage. */
 export const STORAGE_KEY = 'energy-planner-v1';
