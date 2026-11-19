@@ -859,21 +859,6 @@ button.ttitle:focus-visible {
   color: var(--danger);
 }
 
-.start {
-  display: inline-block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ok);
-  font-weight: var(--font-weight-semibold);
-  margin-bottom: 2px;
-}
-
-.task.first .ttitle {
-  font-size: 16px;
-  font-weight: var(--font-weight-semibold);
-}
-
 .empty {
   color: var(--ink-2);
   margin: 4px 0 0;

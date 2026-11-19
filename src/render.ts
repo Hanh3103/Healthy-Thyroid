@@ -42,12 +42,11 @@ function matchesDumpFilter(task: Task): boolean {
   return markedThisWeek || dueThisWeek;
 }
 
-function taskHTML(task: Task, first: boolean, dump = false): string {
+function taskHTML(task: Task, _first: boolean, dump = false): string {
   const due = dueLabel(task.due);
-  let html = `<li class="task${task.done ? ' done' : ''}${first ? ' first' : ''}${task.est ? '' : ' guess'}" data-id="${task.id}">`;
+  let html = `<li class="task${task.done ? ' done' : ''}${task.est ? '' : ' guess'}" data-id="${task.id}">`;
   html += `<button type="button" class="chk" data-act="done" aria-label="${task.done ? 'Mark as not done' : 'Mark as done'}"></button>`;
   html += '<div>';
-  if (first) html += '<span class="start">Start here</span><br>';
   html += `<button type="button" class="ttitle task-editable" data-act="details" title="Edit task name and details">${esc(task.title)}</button>`;
   if (task.reason) html += `<p class="reason">${esc(task.reason)}</p>`;
   if (task.estimateSource === 'heuristic') {
