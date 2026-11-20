@@ -153,7 +153,6 @@ export function render(): void {
   const minutes = now.reduce((total, task) => total + (task.min || 0), 0);
   $('now-meta').textContent = `${now.length} task${now.length === 1 ? '' : 's'}${minutes ? ' · about ' + minutes + ' min' : ''}`;
   $('dumps-meta').textContent = filteredDumps.length ? `${filteredDumps.length} shown` : '';
-  $('summary').textContent = `${EN_NAMES[energy]} energy: ${now.length} task${now.length === 1 ? '' : 's'} waiting today. ${doneHabits} of ${expectedHabits} daily habits done.`;
   $('ex-banner').hidden = !state.tasks.some((task) => task.ex);
 
   let note = '';

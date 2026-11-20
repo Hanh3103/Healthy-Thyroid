@@ -16,22 +16,20 @@
   <body>
     <main>
       <header class="top">
-        <div>
-          <p class="date" id="date"></p>
-          <h1 id="app-title">Energy Planner</h1>
-        </div>
         <nav class="app-nav" aria-label="App views">
+          <span class="app-nav-indicator" aria-hidden="true"></span>
           <button type="button" class="ghost btn-sm active" data-app-view="energy" aria-current="page">Energy Planner</button>
           <button type="button" class="ghost btn-sm" data-app-view="thyroid">Thyroid Checker</button>
           <button type="button" class="ghost btn-sm" data-app-view="diet">Diet Advisor</button>
           <button type="button" class="ghost btn-sm" data-app-view="profile">Profile</button>
         </nav>
-        <div class="top-actions">
-          <p class="summary" id="summary"></p>
+        <div class="top-heading">
+          <h1 id="app-title">Energy Planner</h1>
+          <p class="date" id="date"></p>
         </div>
       </header>
 
-      <div class="grid" id="energy-view">
+      <div class="grid app-view" id="energy-view">
         <aside class="rail">
           <section class="panel" aria-labelledby="h-energy">
             <h2 id="h-energy">Your energy right now</h2>
@@ -153,7 +151,7 @@
         </div>
       </div>
 
-      <section class="thyroid-view" id="thyroid-view" hidden>
+      <section class="thyroid-view app-view" id="thyroid-view" hidden>
         <p class="status" id="thyroid-init-status" role="status" hidden></p>
         <section class="panel" aria-labelledby="thyroid-heading">
           <div class="sec-head">
@@ -271,7 +269,7 @@
         </section>
       </section>
 
-      <section class="diet-view" id="diet-view" hidden aria-labelledby="diet-heading">
+      <section class="diet-view app-view" id="diet-view" hidden aria-labelledby="diet-heading">
         <section class="panel">
           <div class="sec-head">
             <h2 id="diet-heading">Diet Advisor</h2>
@@ -281,7 +279,7 @@
         </section>
       </section>
 
-      <section class="profile-view" id="profile-view" hidden aria-labelledby="profile-heading">
+      <section class="profile-view app-view" id="profile-view" hidden aria-labelledby="profile-heading">
         <section class="panel">
           <div class="sec-head">
             <h2 id="profile-heading">Profile</h2>
