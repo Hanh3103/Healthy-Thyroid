@@ -20,13 +20,14 @@
           <p class="date" id="date"></p>
           <h1 id="app-title">Energy Planner</h1>
         </div>
+        <nav class="app-nav" aria-label="App views">
+          <button type="button" class="ghost btn-sm active" data-app-view="energy" aria-current="page">Energy Planner</button>
+          <button type="button" class="ghost btn-sm" data-app-view="thyroid">Thyroid Checker</button>
+          <button type="button" class="ghost btn-sm" data-app-view="diet">Diet Advisor</button>
+          <button type="button" class="ghost btn-sm" data-app-view="profile">Profile</button>
+        </nav>
         <div class="top-actions">
           <p class="summary" id="summary"></p>
-          <nav class="app-nav" aria-label="App views">
-            <button type="button" class="ghost btn-sm active" data-app-view="energy">Energy Planner</button>
-            <button type="button" class="ghost btn-sm" data-app-view="thyroid">Thyroid Checker</button>
-          </nav>
-          <button class="ghost icon-btn" type="button" id="settings-btn" title="Settings" aria-label="Settings">⚙️</button>
         </div>
       </header>
 
@@ -269,42 +270,58 @@
           </div>
         </section>
       </section>
-    </main>
 
-    <!-- Settings Dialog -->
-    <dialog id="settings-dialog" class="modal">
-      <div class="modal-content">
-        <div class="modal-head">
-          <h3>AI Settings</h3>
-          <button type="button" class="del" id="settings-close" aria-label="Close">×</button>
-        </div>
-        <form id="settings-form">
-          <label for="ai-provider-input">AI provider
-            <select id="ai-provider-input">
-              <option value="custom">Custom</option>
-              <option value="openai">OpenAI / GPT</option>
-              <option value="gemini">Google Gemini</option>
-              <option value="claude">Anthropic Claude</option>
-              <option value="mistral">Mistral</option>
-              <option value="ollama">Ollama</option>
-            </select>
-          </label>
-          <label for="ai-api-key-input">AI API Key
-            <input id="ai-api-key-input" type="password" placeholder="API key (not needed for Ollama)" autocomplete="off" />
-          </label>
-          <label for="ai-endpoint-input">AI endpoint
-            <input id="ai-endpoint-input" type="url" placeholder="https://api.example.com/v1/chat/completions" autocomplete="off" />
-          </label>
-          <label for="ai-model-input">Model
-            <input id="ai-model-input" type="text" placeholder="model-name" autocomplete="off" />
-          </label>
-          <div class="actions" style="margin-top: 18px; justify-content: flex-end;">
-            <button class="ghost" type="button" id="settings-cancel">Cancel</button>
-            <button class="primary btn-sm" type="submit">Save Key</button>
+      <section class="diet-view" id="diet-view" hidden aria-labelledby="diet-heading">
+        <section class="panel">
+          <div class="sec-head">
+            <h2 id="diet-heading">Diet Advisor</h2>
+            <span class="chip">Coming soon</span>
           </div>
-        </form>
-      </div>
-    </dialog>
+          <p class="muted">Personalized meal and nutrition guidance will live here. This area is ready for a future Diet Advisor module, kept independent from Energy Planner and Thyroid Checker.</p>
+        </section>
+      </section>
+
+      <section class="profile-view" id="profile-view" hidden aria-labelledby="profile-heading">
+        <section class="panel">
+          <div class="sec-head">
+            <h2 id="profile-heading">Profile</h2>
+          </div>
+          <p class="muted">Manage your profile and application settings from one place.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="profile-settings-heading">
+          <div class="sec-head">
+            <h2 id="profile-settings-heading">AI Settings</h2>
+          </div>
+          <form id="settings-form">
+            <label for="ai-provider-input">AI provider
+              <select id="ai-provider-input">
+                <option value="custom">Custom</option>
+                <option value="openai">OpenAI / GPT</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="claude">Anthropic Claude</option>
+                <option value="mistral">Mistral</option>
+                <option value="ollama">Ollama</option>
+              </select>
+            </label>
+            <label for="ai-api-key-input">AI API Key
+              <input id="ai-api-key-input" type="password" placeholder="API key (not needed for Ollama)" autocomplete="off" />
+            </label>
+            <label for="ai-endpoint-input">AI endpoint
+              <input id="ai-endpoint-input" type="url" placeholder="https://api.example.com/v1/chat/completions" autocomplete="off" />
+            </label>
+            <label for="ai-model-input">Model
+              <input id="ai-model-input" type="text" placeholder="model-name" autocomplete="off" />
+            </label>
+            <div class="actions" style="margin-top: 18px; justify-content: flex-end;">
+              <button class="ghost" type="button" id="settings-reset">Reset</button>
+              <button class="primary btn-sm" type="submit">Save Settings</button>
+            </div>
+          </form>
+          <p class="status" id="profile-settings-status" role="status"></p>
+        </section>
+      </section>
+    </main>
 
     <!-- Task Details Dialog -->
     <dialog id="task-details-dialog" class="modal">

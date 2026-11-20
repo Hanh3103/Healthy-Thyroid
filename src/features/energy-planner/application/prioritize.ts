@@ -79,8 +79,8 @@ export async function prioritizeTasks(
   if (!configured) {
     const result = rankTasks(inputs, new Map(), energy, today);
     applyResult(result, commit);
-    onStatus('Heuristic estimates used: AI is not configured. Add your key in Settings.');
-    $dialog('settings-dialog').showModal();
+    onStatus('Heuristic estimates used: AI is not configured. Add your key in Profile > AI Settings.');
+    document.querySelector<HTMLElement>('[data-app-view="profile"]')?.click();
     return result;
   }
 
@@ -117,8 +117,4 @@ export async function prioritizeTasks(
   }
 }
 
-function $dialog(id: string): HTMLDialogElement {
-  const element = document.getElementById(id);
-  if (!(element instanceof HTMLDialogElement)) throw new Error(`Dialog #${id} not found`);
-  return element;
-}
+

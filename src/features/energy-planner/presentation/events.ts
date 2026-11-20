@@ -4,7 +4,6 @@ import { state } from '../data/app-state';
 import { $, keyOf } from '../../../shared/utils';
 import { toggleSlot } from '../domain/scoring';
 import { prioritizeTasks } from '../application/prioritize';
-import { AI_ENDPOINTS, getAIConfig } from '../../../shared/ai/ai-client';
 import { setDumpFilter } from './render';
 import {
   createTask,
@@ -256,48 +255,6 @@ export function setupEvents(commit: () => void): void {
     } catch {
       $('b-status').textContent = 'The entered text is not a valid backup JSON.';
     }
-  });
-
-  const settingsDialog = $<HTMLDialogElement>('settings-dialog');
-  const providerInput = $<HTMLSelectElement>('ai-provider-input');
-  const keyInput = $<HTMLInputElement>('ai-api-key-input');
-  const endpointInput = $<HTMLInputElement>('ai-endpoint-input');
-  const modelInput = $<HTMLInputElement>('ai-model-input');
-  $('settings-btn').addEventListener('click', () => {
-    const config = getAIConfig();
-    providerInput.value = config.provider;
-    keyInput.value = config.apiKey;
-    endpointInput.value = config.endpoint;
-    modelInput.value = config.model;
-    settingsDialog.showModal();
-  });
-  $('settings-close').addEventListener('click', () => settingsDialog.close());
-  $('settings-cancel').addEventListener('click', () => settingsDialog.close());
-  providerInput.addEventListener('change', () => {
-    const provider = providerInput.value as keyof typeof AI_ENDPOINTS;
-    const preset = AI_ENDPOINTS[provider];
-    if (preset) {
-      endpointInput.value = preset.endpoint;
-      modelInput.value = preset.model;
-    }
-  });
-  $<HTMLFormElement>('settings-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const provider = providerInput.value as 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral' | 'ollama';
-    const key = keyInput.value.trim();
-    const endpoint = endpointInput.value.trim();
-    const model = modelInput.value.trim();
-    localStorage.setItem('ai_provider', provider);
-    if (key) localStorage.setItem('ai_api_key', key);
-    else localStorage.removeItem('ai_api_key');
-    if (endpoint) localStorage.setItem('ai_endpoint', endpoint);
-    else localStorage.removeItem('ai_endpoint');
-    if (model) localStorage.setItem('ai_model', model);
-    else localStorage.removeItem('ai_model');
-    $('ai-status').textContent = endpoint && model && (provider === 'ollama' || !!key)
-      ? 'AI configuration saved.'
-      : 'AI configuration cleared or incomplete.';
-    settingsDialog.close();
   });
 
   $('ai-btn').addEventListener('click', () => {
