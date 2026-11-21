@@ -1,0 +1,57 @@
+:root {
+  /* Map Element Plus tokens to existing Energy Planner design tokens */
+  --el-color-primary: var(--accent);
+  --el-color-primary-light-3: color-mix(in srgb, var(--accent) 70%, white);
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 50%, white);
+  --el-color-primary-light-7: color-mix(in srgb, var(--accent) 30%, white);
+  --el-color-primary-light-8: color-mix(in srgb, var(--accent) 20%, white);
+  --el-color-primary-light-9: color-mix(in srgb, var(--accent) 10%, white);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--accent) 85%, black);
+
+  --el-color-success: var(--ok);
+  --el-color-danger: var(--danger);
+  --el-color-warning: var(--e2);
+  --el-color-info: var(--ink-2);
+
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--bg);
+  --el-bg-color-overlay: var(--surface);
+  --el-fill-color-blank: var(--surface);
+  --el-fill-color-light: var(--surface-2);
+
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--ink);
+  --el-text-color-secondary: var(--ink-2);
+  --el-text-color-placeholder: var(--ink-2);
+
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: color-mix(in srgb, var(--line) 70%, transparent);
+  --el-border-radius-base: var(--radius-buttons);
+  --el-border-radius-small: var(--radius-sm);
+  --el-border-radius-round: var(--radius-full);
+
+  --el-font-family: var(--font-geist-sans);
+  --el-font-size-base: 14px;
+
+  --el-component-size: 32px;
+  --el-component-size-small: 32px;
+  --el-component-size-large: 40px;
+
+  --el-box-shadow-light: var(--shadow-subtle);
+}
+
+.el-button {
+  --el-button-font-weight: var(--font-weight-medium);
+  font-family: var(--font-geist-sans);
+}
+
+.el-dialog {
+  border-radius: var(--radius-cards);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+/* Let app wrappers/components define field visuals; avoid broad overrides that break focus states */
+.el-input__wrapper {
+  box-shadow: none;
+}
