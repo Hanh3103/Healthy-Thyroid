@@ -1021,13 +1021,14 @@ export interface DashboardVm {
   hasData: boolean;
   range: DashboardRange;
   overlays: OverlayKey[];
+  showTsh: boolean;
   emptyMessage: string;
 }
 
 const CHART = { width: 640, height: 240, left: 44, right: 16, top: 14, bottom: 34 };
 const OVERLAY_COLORS: Record<OverlayKey, string> = {
-  freeT4: 'var(--e1)',
-  freeT3: 'var(--e2)',
+  freeT4: 'var(--thyroid-ft4-line)',
+  freeT3: 'var(--thyroid-ft3-line)',
 };
 const OVERLAY_LABELS: Record<OverlayKey, string> = {
   freeT4: 'Free T4',
@@ -1091,7 +1092,7 @@ function escapeText(value: unknown): string {
   return esc(String(value ?? ''));
 }
 
-export function buildDashboardChart(points: TshPoint[], overlays: OverlayKey[] = []): string {
+export function buildDashboardChart(points: TshPoint[], overlays: OverlayKey[] = [], showTsh = true): string {
   const { width, height, left, right, top, bottom } = CHART;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
@@ -1118,7 +1119,7 @@ export function buildDashboardChart(points: TshPoint[], overlays: OverlayKey[] =
   let svg = '';
 
   // Reference range band (only meaningful when all points share a unit).
-  if (range && (range.low !== null || range.high !== null)) {
+  if (showTsh && range && (range.low !== null || range.high !== null)) {
     const bandTop = toY(range.high ?? yMax);
     const bandBottom = toY(range.low ?? yMin);
     svg += `<rect x="${left}" y="${bandTop}" width="${plotWidth}" height="${Math.max(0, bandBottom - bandTop)}" fill="var(--ok)" opacity="0.09" />`;
@@ -1131,7 +1132,9 @@ export function buildDashboardChart(points: TshPoint[], overlays: OverlayKey[] =
     const value = yMin + (ySpan * tick) / 4;
     const y = toY(value);
     svg += `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="var(--line)" stroke-width="1" opacity="0.7" />`;
-    svg += `<text x="${left - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--ink-2)">${escapeText(formatNumber(value))}</text>`;
+    if (showTsh) {
+      svg += `<text x="${left - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--ink-2)">${escapeText(formatNumber(value))}</text>`;
+    }
   }
 
   // X labels: first, middle, last.
@@ -1171,20 +1174,22 @@ export function buildDashboardChart(points: TshPoint[], overlays: OverlayKey[] =
   }
 
   // TSH line and points.
-  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${toX(index)} ${toY(point.tsh.value)}`).join(' ');
-  svg += `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />`;
-  points.forEach((point, index) => {
-    const outOfRange = point.tshStatus === 'low' || point.tshStatus === 'high';
-    const flag = point.tshStatus === 'high' ? ' ↑' : point.tshStatus === 'low' ? ' ↓' : '';
-    const expected = point.tshRange ? ` · expected ${escapeText(formatRange(point.tshRange))}` : '';
-    svg += `<circle cx="${toX(index)}" cy="${toY(point.tsh.value)}" r="4.5" fill="${outOfRange ? 'var(--danger)' : 'var(--accent)'}" stroke="var(--surface)" stroke-width="2"><title>${escapeText(formatDateDMY(point.date))}: TSH ${escapeText(formatNumber(point.tsh.value))} ${escapeText(point.tsh.unit)}${flag}${expected}</title></circle>`;
-  });
+  if (showTsh) {
+    const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${toX(index)} ${toY(point.tsh.value)}`).join(' ');
+    svg += `<path d="${path}" fill="none" stroke="var(--thyroid-tsh-line)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />`;
+    points.forEach((point, index) => {
+      const outOfRange = point.tshStatus === 'low' || point.tshStatus === 'high';
+      const flag = point.tshStatus === 'high' ? ' ↑' : point.tshStatus === 'low' ? ' ↓' : '';
+      const expected = point.tshRange ? ` · expected ${escapeText(formatRange(point.tshRange))}` : '';
+      svg += `<circle cx="${toX(index)}" cy="${toY(point.tsh.value)}" r="4.5" fill="${outOfRange ? 'var(--danger)' : 'var(--thyroid-tsh-line)'}" stroke="var(--surface)" stroke-width="2"><title>${escapeText(formatDateDMY(point.date))}: TSH ${escapeText(formatNumber(point.tsh.value))} ${escapeText(point.tsh.unit)}${flag}${expected}</title></circle>`;
+    });
+  }
 
-  let html = `<svg viewBox="0 0 ${width} ${height}" class="thyroid-dash-svg" role="img" aria-label="TSH trend line chart">${svg}</svg>`;
-  if (!singleUnit) {
+  let html = `<svg viewBox="0 0 ${width} ${height}" class="thyroid-dash-svg" role="img" aria-label="${showTsh ? 'TSH trend line chart' : 'Thyroid trend line chart'}">${svg}</svg>`;
+  if (showTsh && !singleUnit) {
     html += '<p class="thyroid-dash-note">Results use different TSH units, so values are plotted as recorded. Compare values by their unit.</p>';
   }
-  if (range) {
+  if (showTsh && range) {
     html += `<p class="thyroid-dash-note">Shaded band: expected TSH ${escapeText(formatRange(range))} ${escapeText(points[points.length - 1].tsh.unit)}.</p>`;
   }
   return html;
@@ -1194,15 +1199,17 @@ export function buildDashboard(
   records: ThyroidBloodRecord[],
   range: DashboardRange,
   overlays: OverlayKey[],
+  showTsh = true,
 ): DashboardVm {
   const points = filterDashboardPoints(collectDashboardPoints(records), range);
   return {
     points,
     stats: computeDashboardStats(points),
-    chart: points.length >= 2 ? buildDashboardChart(points, overlays) : '',
+    chart: points.length >= 2 ? buildDashboardChart(points, overlays, showTsh) : '',
     hasData: points.length >= 2,
     range,
     overlays,
+    showTsh,
     emptyMessage: 'Add at least two blood results with a TSH value to see a trend.',
   };
 }

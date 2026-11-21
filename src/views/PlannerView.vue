@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue';
 import { usePlanner } from '../features/planner/usePlanner';
-import EnergyPicker from '../features/planner/EnergyPicker.vue';
+import DailyCheckIn from '../features/planner/DailyCheckIn.vue';
+import EnergyCalendar from '../features/planner/EnergyCalendar.vue';
 import TaskList from '../features/planner/TaskList.vue';
 import TaskItem from '../features/planner/TaskItem.vue';
 import AddTaskForm from '../features/planner/AddTaskForm.vue';
@@ -11,11 +12,10 @@ import AddHabitForm from '../features/planner/AddHabitForm.vue';
 import TaskDetailsDialog from '../features/planner/TaskDetailsDialog.vue';
 import BackupPanel from '../features/planner/BackupPanel.vue';
 import AppButton from '../shared/ui/AppButton.vue';
-import type { EnergyLevel, Task } from '../features/planner/model';
+import type { Task } from '../features/planner/model';
 
 const planner = usePlanner();
 const {
-  energy,
   habitItems,
   habitDoneHabits,
   habitExpectedHabits,
@@ -26,13 +26,8 @@ const {
   dumpFilter,
   aiStatus,
   planNote,
-  energyHint,
   nowMeta,
 } = planner;
-
-function setEnergy(level: EnergyLevel): void {
-  planner.setEnergy(level);
-}
 
 function onTaskAction(task: Task, action: 'done' | 'imp' | 'details' | 'today' | 'del'): void {
   planner.taskAction(task.id, action);
@@ -60,13 +55,11 @@ onUnmounted(() => {
 
 <template>
   <div class="app-view is-active" id="energy-view">
+    <EnergyCalendar />
+
     <div class="grid">
       <aside class="rail">
-        <section class="panel" aria-labelledby="h-energy">
-          <h2 id="h-energy">Your energy right now</h2>
-          <EnergyPicker :model-value="energy" aria-labelledby="h-energy" @update:model-value="setEnergy" />
-          <p class="muted energy-hint" id="energy-hint">{{ energyHint }}</p>
-        </section>
+        <DailyCheckIn />
 
         <section class="panel" aria-labelledby="h-habits">
           <div class="sec-head">
@@ -78,8 +71,8 @@ onUnmounted(() => {
           <AddHabitForm />
           <div id="habits">
             <template v-for="item in habitItems" :key="item.id">
-              <EmailRoutine v-if="item.isMail" :item="item" @toggle-slot="planner.toggleSlot" />
-              <HabitCard v-else :item="item" @toggle="planner.toggleHabit" />
+              <EmailRoutine v-if="item.isMail" :item="item" @toggle-slot="planner.toggleSlot" @remove="planner.removeHabit" />
+              <HabitCard v-else :item="item" @toggle="planner.toggleHabit" @remove="planner.removeHabit" />
             </template>
           </div>
         </section>
@@ -91,7 +84,7 @@ onUnmounted(() => {
           <button class="ghost" type="button" @click="planner.clearExamples">Remove examples</button>
         </div>
 
-        <TaskList title-id="h-now" title="Do now" :tasks="nowTasks" :meta="nowMeta" @action="onTaskAction">
+        <TaskList title-id="h-now" title="Today" :tasks="nowTasks" :meta="nowMeta" @action="onTaskAction">
           <template #actions>
             <button class="ghost btn-sm" id="ai-btn" type="button" @click="planner.prioritize">AI Prioritize</button>
           </template>

@@ -1,15 +1,27 @@
 <script setup lang="ts">
 import type { HabitItemView } from './model';
+import StreakBadge from './StreakBadge.vue';
 
 defineProps<{ item: HabitItemView }>();
-const emit = defineEmits<{ 'toggle-slot': [id: string] }>();
+const emit = defineEmits<{ 'toggle-slot': [id: string]; remove: [id: string] }>();
 </script>
 
 <template>
   <div class="habit">
     <div class="habit-head">
       <h3>{{ item.name }}</h3>
-      <span class="muted">{{ item.weekendMail ? 'Weekend' : `${item.doneCount} of ${item.slots.length} done` }}</span>
+      <div class="habit-head-actions">
+        <span class="muted">{{ item.weekendMail ? 'Weekend' : `${item.doneCount} of ${item.slots.length} done` }}</span>
+        <button
+          type="button"
+          class="habit-remove"
+          :aria-label="`Remove habit: ${item.name}`"
+          title="Remove habit"
+          @click="emit('remove', item.id)"
+        >
+          ×
+        </button>
+      </div>
     </div>
     <ul v-if="item.slots.length" class="slots">
       <li v-for="slot in item.slots" :key="slot.id" class="slot" :class="{ done: slot.done, next: slot.next }">
@@ -25,11 +37,6 @@ const emit = defineEmits<{ 'toggle-slot': [id: string] }>();
       </li>
     </ul>
     <p v-else class="how">No email routine on weekends. It starts again on Monday.</p>
-    <div class="hfoot">
-      <div class="dots" aria-label="Last 7 days">
-        <i v-for="day in item.days" :key="day.index" :class="day.className" :title="day.title">{{ day.letter }}</i>
-      </div>
-      <span class="muted">{{ item.streak > 0 ? item.streak + '-day streak' : 'No streak yet' }}</span>
-    </div>
+    <StreakBadge :streak="item.streak" :history="item.days" />
   </div>
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
+import AppConfirmDialog from './shared/ui/AppConfirmDialog.vue';
 import AppTabs from './shared/layout/AppTabs.vue';
 import { TABS } from './router';
 
@@ -29,5 +30,6 @@ const date = ref(new Date().toLocaleDateString(undefined, {
     </header>
 
     <RouterView />
+    <AppConfirmDialog />
   </main>
 </template>

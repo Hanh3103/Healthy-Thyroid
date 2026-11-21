@@ -2,7 +2,7 @@
  * Planner model: types, constants and pure rules.
  * No Vue, no persistence, no DOM.
  */
-import { keyOf, daysUntil } from '../../shared/utils';
+import { keyOf, daysUntil } from '../../shared/utils/index.ts';
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
@@ -56,13 +56,72 @@ export interface Plan {
   at: number;
 }
 
+export interface DailyCheckIn {
+  /** Symptoms the user entered when saving or editing the day. */
+  symptoms: string;
+  level: EnergyLevel;
+  /** Level the AI suggested, kept for reference when editing. */
+  suggested: EnergyLevel | null;
+  /** One-sentence AI rationale, shown only when an AI suggestion was accepted. */
+  aiReason?: string | null;
+  source: 'ai' | 'manual' | 'legacy';
+  at: number;
+}
+
 export interface AppState {
   energy: EnergyLevel;
   energyDay: string;
+  /** One saved level per day the user chose, keyed by YYYY-MM-DD. */
+  energyHistory: Record<string, EnergyLevel>;
+  /** Daily symptom check-ins keyed by YYYY-MM-DD. */
+  checkIns: Record<string, DailyCheckIn>;
   log: Record<string, Record<string, boolean>>;
   plan: Plan | null;
   habits: Habit[];
   tasks: Task[];
+}
+
+export interface EnergyCalendarDay {
+  key: string;
+  day: number;
+  inMonth: boolean;
+  isToday: boolean;
+  isPast: boolean;
+  isFuture: boolean;
+  level: EnergyLevel | null;
+}
+
+export interface EnergyCalendarMonth {
+  year: number;
+  /** Zero-based month index, as used by Date. */
+  month: number;
+  label: string;
+  weeks: EnergyCalendarDay[][];
+  counts: Record<EnergyLevel, number>;
+  recordedDays: number;
+}
+
+export interface EnergyCalendarWeek {
+  /** Zero for the current week; -1 for last week, and so on. */
+  offset: number;
+  /** Machine-readable Monday–Sunday range. */
+  range: string;
+  /** Human-readable range shown in the card header. */
+  label: string;
+  days: EnergyCalendarDay[];
+}
+
+export interface EnergySummary {
+  logged: number;
+  average: number | null;
+  mostCommon: EnergyLevel | null;
+}
+
+export type CalendarMode = 'week' | 'month';
+
+/** Validates the persisted calendar mode; anything unknown falls back to week. */
+export function normalizeCalendarMode(raw: unknown): CalendarMode {
+  return raw === 'month' ? 'month' : 'week';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -73,6 +132,8 @@ export interface AppState {
 export const STORAGE_KEY = 'energy-planner-v1';
 /** Migration marker for the urgency renumbering. */
 export const URGENCY_MIGRATION_KEY = 'energy-planner-urgency-v2';
+/** Persisted UI preference for the calendar view. */
+export const CALENDAR_MODE_KEY = 'energy-planner-calendar-mode-v1';
 
 export const EN_NAMES: Record<number, string> = { 1: 'Low', 2: 'Medium', 3: 'High' };
 export const IM_NAMES: Record<number, string> = { 1: 'Later', 2: 'Tomorrow', 3: 'This week', 4: 'Today' };
@@ -81,6 +142,71 @@ export const HINTS: Record<number, string> = {
   2: 'Medium: steady, routine work.',
   3: 'High: spend it on the hardest, most important task first.',
 };
+
+/** Returns true for a valid YYYY-MM-DD local calendar date. */
+export function isDateKey(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day, 12);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+/** Keeps only valid dates with valid energy levels from persisted data. */
+export function normalizeEnergyHistory(raw: unknown): Record<string, EnergyLevel> {
+  const result: Record<string, EnergyLevel> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (isDateKey(key) && (value === 1 || value === 2 || value === 3)) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function isEnergyLevel(value: unknown): value is EnergyLevel {
+  return value === 1 || value === 2 || value === 3;
+}
+
+/** Keeps valid check-ins and backfills legacy saved energy days. */
+export function normalizeCheckIns(
+  raw: unknown,
+  history: Record<string, EnergyLevel>,
+): Record<string, DailyCheckIn> {
+  const result: Record<string, DailyCheckIn> = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [key, value] of Object.entries(raw)) {
+      if (!isDateKey(key) || !value || typeof value !== 'object') continue;
+      const item = value as Partial<DailyCheckIn>;
+      if (!isEnergyLevel(item.level)) continue;
+      const source = item.source === 'ai' || item.source === 'manual'
+        ? item.source
+        : 'legacy';
+      result[key] = {
+        symptoms: typeof item.symptoms === 'string' ? item.symptoms.slice(0, 1000) : '',
+        level: item.level,
+        suggested: isEnergyLevel(item.suggested) ? item.suggested : null,
+        aiReason: typeof item.aiReason === 'string' ? item.aiReason.slice(0, 200) : null,
+        source,
+        at: typeof item.at === 'number' && Number.isFinite(item.at) ? item.at : 0,
+      };
+    }
+  }
+
+  for (const [key, level] of Object.entries(history)) {
+    result[key] ??= { symptoms: '', level, suggested: null, aiReason: null, source: 'legacy', at: 0 };
+  }
+  return result;
+}
+
+/** True when the day already has a saved check-in. */
+export function isCheckInLocked(state: AppState, date: string): boolean {
+  return !!state.checkIns[date];
+}
 
 export const DEFAULT_HABITS: Habit[] = [
   {
@@ -209,6 +335,19 @@ export function orderNow(list: Task[], plan: Plan | null, energy: number, now: D
   return list.sort((a, b) => score(b, now) - score(a, now));
 }
 
+/**
+ * Today's list is energy-aware: unestimated work stays visible, estimated
+ * "too hard" work is parked until the user records a higher-energy day.
+ */
+export function tasksForEnergy(tasks: Task[], energy: EnergyLevel): Task[] {
+  return tasks.filter((task) => {
+    if (!task.fit) return true;
+    if (task.fit === 'fits') return true;
+    if (task.fit === 'stretch') return energy >= 2;
+    return energy === 3;
+  });
+}
+
 export function streak(id: string, log: AppState['log'], now: Date): number {
   let count = 0;
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
@@ -234,6 +373,139 @@ export function todaySlots(date: Date): MailSlot[] {
   const weekday = date.getDay();
   if (weekday === 0 || weekday === 6) return [];
   return MAIL_SLOTS.filter((slot) => !slot.fri || weekday === 5);
+}
+
+/** Builds a Monday-first month grid annotated with the saved energy levels. */
+export function buildEnergyCalendar(
+  year: number,
+  month: number,
+  history: Record<string, EnergyLevel>,
+  now = new Date(),
+): EnergyCalendarMonth {
+  const todayKey = keyOf(now);
+  const first = new Date(year, month, 1, 12);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cellCount = Math.ceil((mondayOffset + daysInMonth) / 7) * 7;
+
+  const days: EnergyCalendarDay[] = [];
+  for (let index = 0; index < cellCount; index++) {
+    const date = new Date(year, month, 1 - mondayOffset + index, 12);
+    const key = keyOf(date);
+    days.push({
+      key,
+      day: date.getDate(),
+      inMonth: date.getFullYear() === year && date.getMonth() === month,
+      isToday: key === todayKey,
+      isPast: key < todayKey,
+      isFuture: key > todayKey,
+      level: history[key] ?? null,
+    });
+  }
+
+  const weeks: EnergyCalendarDay[][] = [];
+  for (let index = 0; index < days.length; index += 7) weeks.push(days.slice(index, index + 7));
+
+  const counts: Record<EnergyLevel, number> = { 1: 0, 2: 0, 3: 0 };
+  let recordedDays = 0;
+  for (const day of days) {
+    if (day.inMonth && day.level !== null) {
+      counts[day.level]++;
+      recordedDays++;
+    }
+  }
+
+  return {
+    year,
+    month,
+    label: first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+    weeks,
+    counts,
+    recordedDays,
+  };
+}
+
+/** Formats a Monday–Sunday range for the calendar header. */
+function weekRangeLabel(first: Date, last: Date): string {
+  const shortMonth = (date: Date) => date.toLocaleDateString(undefined, { month: 'short' });
+  if (first.getFullYear() === last.getFullYear() && first.getMonth() === last.getMonth()) {
+    return `${first.getDate()}–${last.getDate()} ${shortMonth(first)} ${first.getFullYear()}`;
+  }
+  if (first.getFullYear() === last.getFullYear()) {
+    return `${first.getDate()} ${shortMonth(first)} – ${last.getDate()} ${shortMonth(last)} ${last.getFullYear()}`;
+  }
+  return `${first.getDate()} ${shortMonth(first)} ${first.getFullYear()} – ${last.getDate()} ${shortMonth(last)} ${last.getFullYear()}`;
+}
+
+/**
+ * Returns the Monday-to-Sunday week `offset` weeks from the current one.
+ * Negative offsets move into the past; 0 is the current week.
+ */
+export function buildEnergyWeek(
+  history: Record<string, EnergyLevel>,
+  now = new Date(),
+  offset = 0,
+): EnergyCalendarWeek {
+  const todayKey = keyOf(now);
+  const mondayOffset = (now.getDay() + 6) % 7;
+  const monday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() - mondayOffset + offset * 7,
+    12,
+  );
+
+  const days: EnergyCalendarDay[] = [];
+  for (let index = 0; index < 7; index++) {
+    const date = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index, 12);
+    const key = keyOf(date);
+    days.push({
+      key,
+      day: date.getDate(),
+      inMonth: true,
+      isToday: key === todayKey,
+      isPast: key < todayKey,
+      isFuture: key > todayKey,
+      level: history[key] ?? null,
+    });
+  }
+
+  const first = new Date(`${days[0].key}T12:00:00`);
+  const last = new Date(`${days[6].key}T12:00:00`);
+  return {
+    offset,
+    range: `${days[0].key} – ${days[6].key}`,
+    label: weekRangeLabel(first, last),
+    days,
+  };
+}
+
+/** Returns the current Monday-to-Sunday week. */
+export function buildCurrentWeek(
+  history: Record<string, EnergyLevel>,
+  now = new Date(),
+): EnergyCalendarWeek {
+  return buildEnergyWeek(history, now, 0);
+}
+
+/** Summarises a month's logged energy levels for the expanded calendar. */
+export function summarizeEnergyMonth(month: EnergyCalendarMonth): EnergySummary {
+  const logged = month.recordedDays;
+  if (!logged) return { logged: 0, average: null, mostCommon: null };
+
+  const levels: EnergyLevel[] = [1, 2, 3];
+  let total = 0;
+  let mostCommon: EnergyLevel = 1;
+  for (const level of levels) {
+    total += month.counts[level] * level;
+    if (month.counts[level] > month.counts[mostCommon]) mostCommon = level;
+  }
+
+  return {
+    logged,
+    average: Math.round((total / logged) * 10) / 10,
+    mostCommon,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -434,6 +706,8 @@ export function seedState(): AppState {
   return {
     energy: 2,
     energyDay: keyOf(new Date()),
+    energyHistory: {},
+    checkIns: {},
     log: {},
     plan: null,
     habits: [...DEFAULT_HABITS],
@@ -449,17 +723,27 @@ export function seedState(): AppState {
   };
 }
 
-export function normalizeState(raw: unknown): AppState | null {
+export function normalizeState(raw: unknown, now = new Date()): AppState | null {
   if (!raw || typeof raw !== 'object') return null;
   const parsed = raw as Partial<AppState>;
   if (!Array.isArray(parsed.tasks)) return null;
 
-  const today = keyOf(new Date());
+  const today = keyOf(now);
   const log = parsed.log && typeof parsed.log === 'object' ? parsed.log : {};
-  const habits = Array.isArray(parsed.habits) && parsed.habits.length ? parsed.habits : [...DEFAULT_HABITS];
+  // An empty array is a valid state (all habits removed); only reseed when missing.
+  const habits = Array.isArray(parsed.habits) ? parsed.habits : [...DEFAULT_HABITS];
   const energy = (parsed.energy === 1 || parsed.energy === 2 || parsed.energy === 3
     ? parsed.energy
     : 2) as EnergyLevel;
+
+  const energyHistory = normalizeEnergyHistory(parsed.energyHistory);
+  const storedDay = isDateKey(parsed.energyDay) ? parsed.energyDay : '';
+  // Older saves stored only the last active day. Keep that single data point.
+  if (storedDay && storedDay <= today && energyHistory[storedDay] === undefined) {
+    energyHistory[storedDay] = energy;
+  }
+  const currentEnergy = energyHistory[today] ?? (storedDay === today ? energy : 2);
+  const checkIns = normalizeCheckIns(parsed.checkIns, energyHistory);
 
   const tasks = parsed.tasks
     .filter((task): task is Task => !!task && typeof task === 'object' && typeof task.id === 'string')
@@ -473,8 +757,10 @@ export function normalizeState(raw: unknown): AppState | null {
     }));
 
   return {
-    energy,
-    energyDay: parsed.energyDay === today ? parsed.energyDay : today,
+    energy: currentEnergy,
+    energyDay: today,
+    energyHistory,
+    checkIns,
     log,
     plan: parsed.plan ?? null,
     habits,

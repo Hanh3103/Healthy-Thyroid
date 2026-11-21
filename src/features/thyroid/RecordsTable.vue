@@ -1,43 +1,55 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
 import AppButton from '../../shared/ui/AppButton.vue';
+import AppDialog from '../../shared/ui/AppDialog.vue';
+import { requestConfirm } from '../../shared/ui/useConfirm';
+import { deleteThyroidResultConfirm } from '../../shared/ui/confirmCopy';
 import { useThyroid } from './useThyroid';
 
 const vm = reactive(useThyroid());
+const dialogOpen = ref(false);
+const dialogMode = ref<'export' | 'import'>('export');
 const exportText = ref('');
+const importStatus = ref('');
 
-function onExport(): void {
+function openExport(): void {
   exportText.value = vm.exportJson();
+  importStatus.value = '';
+  dialogMode.value = 'export';
+  dialogOpen.value = true;
 }
 
-function onImport(): void {
-  if (!exportText.value.trim()) return;
+function openImport(): void {
+  exportText.value = '';
+  importStatus.value = '';
+  dialogMode.value = 'import';
+  dialogOpen.value = true;
+}
+
+function runImport(): void {
+  if (!exportText.value.trim()) {
+    importStatus.value = 'Paste JSON to import.';
+    return;
+  }
   try {
     vm.importJson(exportText.value);
+    dialogOpen.value = false;
   } catch (error) {
-    vm.scanStatus = `Import failed: ${error instanceof Error ? error.message : String(error)}`;
+    importStatus.value = `Import failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
-function onDelete(id: string, date: string): void {
-  if (window.confirm(`Delete the blood result from ${date}?`)) vm.deleteRecord(id);
+async function onDelete(id: string, date: string): Promise<void> {
+  if (await requestConfirm(deleteThyroidResultConfirm(date))) vm.deleteRecord(id);
 }
 </script>
 
 <template>
   <div class="thyroid-history">
     <div class="sec-head-actions">
-      <AppButton id="thyroid-export" @click="onExport">Export JSON</AppButton>
-      <AppButton id="thyroid-import" @click="onImport">Import JSON</AppButton>
+      <AppButton id="thyroid-export" @click="openExport">Export JSON</AppButton>
+      <AppButton id="thyroid-import" @click="openImport">Import JSON</AppButton>
     </div>
-
-    <textarea
-      id="thyroid-export-text"
-      v-model="exportText"
-      aria-label="Thyroid data JSON"
-      placeholder="Export creates JSON here; paste JSON here to import."
-    ></textarea>
-    <p v-if="vm.scanStatus && !vm.scanStatus.startsWith('Scan')" class="status" role="status">{{ vm.scanStatus }}</p>
 
     <p id="thyroid-record-count" class="thyroid-footnote">
       {{ vm.history.count }} record{{ vm.history.count === 1 ? '' : 's' }}
@@ -78,5 +90,26 @@ function onDelete(id: string, date: string): void {
         </tbody>
       </table>
     </div>
+
+    <AppDialog
+      v-model="dialogOpen"
+      :title="dialogMode === 'export' ? 'Export JSON' : 'Import JSON'"
+      width="560px"
+    >
+      <textarea
+        id="thyroid-export-text"
+        v-model="exportText"
+        class="thyroid-json-textarea"
+        aria-label="Thyroid data JSON"
+        :placeholder="dialogMode === 'export'
+          ? 'Select and copy this JSON to back up your data.'
+          : 'Paste exported JSON here to import.'"
+      ></textarea>
+      <p v-if="importStatus" class="status" role="status">{{ importStatus }}</p>
+      <template #footer>
+        <AppButton @click="dialogOpen = false">Close</AppButton>
+        <AppButton v-if="dialogMode === 'import'" variant="primary" @click="runImport">Import</AppButton>
+      </template>
+    </AppDialog>
   </div>
 </template>

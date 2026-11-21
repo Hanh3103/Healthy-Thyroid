@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue';
 import AppButton from '../../shared/ui/AppButton.vue';
+import AppDateField from '../../shared/ui/AppDateField.vue';
 import AppFormActions from '../../shared/ui/AppFormActions.vue';
+import { requestConfirm } from '../../shared/ui/useConfirm';
+import { archiveThyroidTestConfirm } from '../../shared/ui/confirmCopy';
 import { useThyroid } from './useThyroid';
 import type { ThyroidFieldKey } from './model';
 
@@ -9,7 +12,6 @@ const vm = reactive(useThyroid());
 
 const formEl = ref<HTMLElement | null>(null);
 const gridEl = ref<HTMLElement | null>(null);
-const datePicker = ref<HTMLInputElement | null>(null);
 
 const newName = ref('');
 const newUnit = ref('');
@@ -73,22 +75,10 @@ function addCustomTest(): void {
   }
 }
 
-function archiveCustomTest(id: string, name: string): void {
-  if (window.confirm(`Archive “${name}”? Existing results keep their values.`)) {
+async function archiveCustomTest(id: string, name: string): Promise<void> {
+  if (await requestConfirm(archiveThyroidTestConfirm(name))) {
     vm.archiveCustomTest(id);
   }
-}
-
-function openDatePicker(): void {
-  const picker = datePicker.value;
-  if (!picker) return;
-  if (typeof picker.showPicker === 'function') picker.showPicker();
-  else picker.click();
-}
-
-function onDatePicker(event: Event): void {
-  const iso = (event.target as HTMLInputElement).value;
-  if (iso) vm.setDate(iso);
 }
 
 /** Moves focus within the field grid, mirroring the old keyboard navigation. */
@@ -143,33 +133,12 @@ function onGridKeydown(event: KeyboardEvent): void {
   <form id="thyroid-record-form" ref="formEl" class="thyroid-form" @submit.prevent="vm.submitForm()">
     <h3 id="thyroid-form-heading">{{ vm.formHeading }}</h3>
 
-    <label>
-      Test date
-      <span class="thyroid-date-row">
-        <input
-          id="thyroid-date-input"
-          type="text"
-          inputmode="numeric"
-          autocomplete="off"
-          placeholder="DD/MM/YYYY"
-          :value="vm.formDateText"
-          @change="vm.setDateText(($event.target as HTMLInputElement).value)"
-        />
-        <button type="button" class="thyroid-date-picker-btn" title="Choose a date" @click="openDatePicker">
-          ▦
-        </button>
-        <input
-          id="thyroid-date-picker"
-          ref="datePicker"
-          type="date"
-          class="thyroid-date-picker-hidden"
-          :value="vm.formDateIso"
-          tabindex="-1"
-          aria-hidden="true"
-          @change="onDatePicker"
-        />
-      </span>
-    </label>
+    <AppDateField
+      id="thyroid-date-input"
+      v-model="vm.formDateIso"
+      label="Test date"
+      @update:model-value="vm.setDate"
+    />
 
     <div id="thyroid-field-grid" ref="gridEl" class="thyroid-field-grid" @keydown="onGridKeydown">
       <table class="thyroid-field-table">
@@ -377,10 +346,10 @@ function onGridKeydown(event: KeyboardEvent): void {
             @keydown.enter.prevent="addCustomTest"
           />
         </label>
-        <AppButton variant="primary" @click="addCustomTest">Add test</AppButton>
       </div>
       <div class="thyroid-add-test-actions">
         <span id="thyroid-add-test-status" class="status" role="status">{{ vm.addTestStatus }}</span>
+        <AppButton variant="primary" @click="addCustomTest" :equal="true">Add</AppButton>
       </div>
     </div>
 
@@ -392,8 +361,8 @@ function onGridKeydown(event: KeyboardEvent): void {
     <p id="thyroid-form-status" class="status" role="status">{{ vm.formStatus }}</p>
 
     <AppFormActions>
-      <AppButton variant="primary" type="submit">Save result</AppButton>
-      <AppButton type="button" @click="vm.clearForm()">Clear</AppButton>
+      <AppButton variant="primary" type="submit" :equal="true">Save</AppButton>
+      <AppButton type="button" @click="vm.clearForm()" :equal="true">Clear</AppButton>
     </AppFormActions>
   </form>
 </template>

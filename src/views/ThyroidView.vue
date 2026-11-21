@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive } from 'vue';
 import AppButton from '../shared/ui/AppButton.vue';
+import AppDateField from '../shared/ui/AppDateField.vue';
 import AppDialog from '../shared/ui/AppDialog.vue';
 import AppPanel from '../shared/ui/AppPanel.vue';
 import AppSectionHeader from '../shared/ui/AppSectionHeader.vue';
@@ -12,15 +13,7 @@ import ThyroidForm from '../features/thyroid/ThyroidForm.vue';
 import { useThyroid } from '../features/thyroid/useThyroid';
 
 const vm = reactive(useThyroid());
-const apptDatePicker = ref<HTMLInputElement | null>(null);
 const frequencyChoices = [2, 3, 4, 6, 12];
-
-function openAppointmentPicker(): void {
-  const picker = apptDatePicker.value;
-  if (!picker) return;
-  if (typeof picker.showPicker === 'function') picker.showPicker();
-  else picker.click();
-}
 
 onMounted(() => {
   void vm.init();
@@ -63,30 +56,11 @@ function saveAppointment(): void {
           <button type="button" class="modal-close" title="Close" @click="vm.closeAppointmentDialog()">×</button>
         </div>
         <form @submit.prevent="saveAppointment">
-          <label>
-            Date (DD/MM/YYYY)
-            <span class="thyroid-date-row">
-              <input
-                id="thyroid-appt-date"
-                type="text"
-                inputmode="numeric"
-                :value="vm.formatDate(vm.appointmentForm.date)"
-                @change="vm.setAppointmentDateText(($event.target as HTMLInputElement).value)"
-              />
-              <button type="button" class="thyroid-date-picker-btn" title="Choose a date" @click="openAppointmentPicker">
-                ▦
-              </button>
-              <input
-                id="thyroid-appt-date-picker"
-                ref="apptDatePicker"
-                v-model="vm.appointmentForm.date"
-                type="date"
-                class="thyroid-date-picker-hidden"
-                tabindex="-1"
-                aria-hidden="true"
-              />
-            </span>
-          </label>
+          <AppDateField
+            id="thyroid-appt-date"
+            v-model="vm.appointmentForm.date"
+            label="Date (DD/MM/YYYY)"
+          />
           <p id="thyroid-appt-suggested" class="thyroid-appt-hint">
             Suggested: {{ vm.formatDate(vm.appointmentCard.targetDate) }}
           </p>

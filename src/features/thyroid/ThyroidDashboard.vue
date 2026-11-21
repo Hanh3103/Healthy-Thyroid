@@ -4,6 +4,7 @@ import { useThyroid } from './useThyroid';
 import type { DashboardRange, OverlayKey } from './model';
 
 const vm = reactive(useThyroid());
+const isDev = import.meta.env.DEV;
 
 const ranges: Array<{ value: DashboardRange; label: string }> = [
   { value: 'all', label: 'All' },
@@ -42,10 +43,16 @@ function latestBadgeClass(): string {
         >{{ option.label }}</button>
       </div>
 
-      <span class="thyroid-dash-series-label">
+      <button
+        type="button"
+        class="thyroid-dash-overlay"
+        :class="{ active: vm.showTsh }"
+        :aria-pressed="vm.showTsh"
+        @click="vm.toggleTsh()"
+      >
         <span class="thyroid-dash-swatch thyroid-dash-swatch-tsh"></span>
         TSH
-      </span>
+      </button>
       <button
         v-for="option in overlayOptions"
         :key="option.key"
@@ -57,6 +64,10 @@ function latestBadgeClass(): string {
       >
         <span class="thyroid-dash-swatch" :class="option.swatch"></span>
         {{ option.label }}
+      </button>
+
+      <button v-if="isDev" type="button" class="ghost btn-sm" @click="vm.toggleDemoRecords()">
+        {{ vm.hasDemoRecords ? 'Unload demo results' : 'Load 20 demo results' }}
       </button>
     </div>
 

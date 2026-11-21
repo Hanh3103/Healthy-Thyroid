@@ -1,6 +1,6 @@
 <script setup lang="ts">
 withDefaults(defineProps<{
-  variant?: 'primary' | 'ghost' | 'text';
+  variant?: 'primary' | 'ghost' | 'text' | 'danger';
   size?: 'sm' | 'md';
   type?: 'button' | 'submit' | 'reset';
   disabled?: boolean;
@@ -18,7 +18,7 @@ withDefaults(defineProps<{
 
 <template>
   <el-button
-    :type="variant === 'primary' ? 'primary' : 'default'"
+    :type="variant === 'primary' || variant === 'danger' ? variant : 'default'"
     :native-type="type"
     :disabled="disabled"
     :loading="loading"
@@ -83,6 +83,20 @@ withDefaults(defineProps<{
 .app-btn--ghost:hover {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--ink-2) 30%, var(--line));
+}
+
+.app-btn--danger {
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+  color: #ffffff;
+  border: 1px solid #b91c1c;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
+    0 1px 2px color-mix(in srgb, black 20%, transparent),
+    0 6px 14px color-mix(in srgb, #dc2626 24%, transparent);
+}
+
+.app-btn--danger:hover {
+  filter: brightness(1.05);
 }
 
 .app-btn:active {

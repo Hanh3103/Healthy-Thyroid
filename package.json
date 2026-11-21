@@ -9,6 +9,10 @@
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src",
     "test:ai": "node --experimental-strip-types --test tests/prioritize-core.test.mjs",
+    "test:checkin": "node --experimental-strip-types --test tests/checkin.test.mjs",
+    "test:confirm": "node --experimental-strip-types --test tests/confirm.test.mjs",
+    "test:energy": "node --experimental-strip-types --test tests/energy-history.test.mjs",
+    "test:streak": "node --experimental-strip-types --test tests/streak.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

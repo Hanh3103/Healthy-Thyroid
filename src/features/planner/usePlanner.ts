@@ -6,30 +6,48 @@
  */
 import { computed, ref } from 'vue';
 import {
+  CALENDAR_MODE_KEY,
   EN_NAMES,
+  buildEnergyCalendar,
+  buildEnergyWeek,
   buildHabitItems,
   createTask,
   cycleTaskUrgency,
   DEFAULT_HABITS,
   editTask,
+  isCheckInLocked,
   isTodayTask,
   matchesDumpFilter,
   moveTaskToToday,
+  normalizeCalendarMode,
   normalizeState,
   orderNow,
   planFresh,
   removeTask,
   seedState,
+  summarizeEnergyMonth,
+  tasksForEnergy,
   toggleTaskDone,
   todaySlots,
   type AppState,
+  type CalendarMode,
+  type DailyCheckIn,
   type DumpFilter,
   type EnergyLevel,
   type Habit,
   type Task,
 } from './model';
+import {
+  buildCheckInPrompt,
+  heuristicEnergySuggestion,
+  parseEnergySuggestion,
+  recommendedAiReason,
+} from './checkin';
 import { loadPlanner, savePlanner } from './api';
+import { localLoad, localSave } from '../../shared/platform';
 import { keyOf } from '../../shared/utils';
+import { requestConfirm } from '../../shared/ui/useConfirm';
+import { removeHabitConfirm } from '../../shared/ui/confirmCopy';
 import { createAITextProvider } from '../../shared/ai/client';
 import { useAiStore } from '../../stores/ai';
 import {
@@ -57,6 +75,33 @@ const taskAddOpen = ref(false);
 const habitAddOpen = ref(false);
 const taskDialogOpen = ref(false);
 
+interface CheckInForm {
+  symptoms: string;
+  level: EnergyLevel;
+  suggestion: DailyCheckIn['suggested'];
+  suggestionReason: string;
+  suggestionSource: 'ai' | 'heuristic' | null;
+  status: string;
+  loading: boolean;
+  editing: boolean;
+}
+const checkInForm = ref<CheckInForm>({
+  symptoms: '',
+  level: 2,
+  suggestion: null,
+  suggestionReason: '',
+  suggestionSource: null,
+  status: '',
+  loading: false,
+  editing: false,
+});
+
+const now = new Date();
+const todayKey = ref(keyOf(now));
+const calendarCursor = ref({ year: now.getFullYear(), month: now.getMonth() });
+const calendarMode = ref<CalendarMode>(normalizeCalendarMode(localLoad<unknown>(CALENDAR_MODE_KEY)));
+const weekOffset = ref(0);
+
 const taskForm = ref({ title: '', due: '', minutes: undefined as number | undefined });
 const taskDueStatus = ref('No due date');
 let editingTaskId: string | null = null;
@@ -68,10 +113,43 @@ let shownDay = keyOf(new Date());
 
 const energy = computed(() => state.value.energy);
 const habitView = computed(() => buildHabitItems(state.value.habits, state.value.log, new Date(), state.value.energy));
+const checkIn = computed(() => state.value.checkIns[todayKey.value] ?? null);
+const checkInLocked = computed(() => isCheckInLocked(state.value, todayKey.value) && !checkInForm.value.editing);
+
+const todayDate = computed(() => {
+  const [year, month, day] = todayKey.value.split('-').map(Number);
+  return new Date(year, month - 1, day, 12);
+});
+const energyCalendar = computed(() => buildEnergyCalendar(
+  calendarCursor.value.year,
+  calendarCursor.value.month,
+  state.value.energyHistory,
+  todayDate.value,
+));
+const energyWeek = computed(() => buildEnergyWeek(
+  state.value.energyHistory,
+  todayDate.value,
+  weekOffset.value,
+));
+const energySummary = computed(() => summarizeEnergyMonth(energyCalendar.value));
+const canGoForwardWeek = computed(() => weekOffset.value < 0);
+const canGoForward = computed(() => {
+  const cursor = calendarCursor.value;
+  const today = todayDate.value;
+  return cursor.year < today.getFullYear()
+    || (cursor.year === today.getFullYear() && cursor.month < today.getMonth());
+});
 
 const openTasks = computed(() => state.value.tasks.filter((task) => !task.done));
 const todayTasks = computed(() => openTasks.value.filter(isTodayTask));
-const nowTasks = computed(() => orderNow([...todayTasks.value], state.value.plan, state.value.energy, new Date()));
+const visibleTodayTasks = computed(() => tasksForEnergy(todayTasks.value, state.value.energy));
+const deferredTaskCount = computed(() => todayTasks.value.length - visibleTodayTasks.value.length);
+const nowTasks = computed(() => orderNow(
+  [...visibleTodayTasks.value],
+  state.value.plan,
+  state.value.energy,
+  new Date(),
+));
 const dumps = computed(() => {
   const todayIds = new Set(todayTasks.value.map((task) => task.id));
   return openTasks.value.filter((task) => !todayIds.has(task.id));
@@ -95,9 +173,12 @@ const planNote = computed(() => {
 const energyHint = computed(() => {
   const count = nowTasks.value.length;
   const word = count === 1 ? 'task' : 'tasks';
-  if (state.value.energy === 1) return `Low: ${count} light ${word} queued.`;
-  if (state.value.energy === 2) return `Medium: ${count} steady ${word} queued.`;
-  return `High: ${count} ${word} queued — tackle the hardest first.`;
+  const parked = deferredTaskCount.value
+    ? ` ${deferredTaskCount.value} high-focus task${deferredTaskCount.value === 1 ? '' : 's'} parked for a higher-energy day.`
+    : '';
+  if (state.value.energy === 1) return `Low: ${count} light ${word} queued.${parked}`;
+  if (state.value.energy === 2) return `Medium: ${count} steady ${word} queued.${parked}`;
+  return `High: ${count} ${word} queued — tackle the hardest first.${parked}`;
 });
 
 const nowMeta = computed(() => {
@@ -114,6 +195,7 @@ const nowMeta = computed(() => {
 async function init(): Promise<void> {
   if (initialised.value) return;
   state.value = await loadPlanner();
+  syncCheckInForm();
   initialised.value = true;
 }
 
@@ -122,19 +204,177 @@ function persist(): void {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Energy / habits                                                            */
+/* Daily check-in / energy                                                    */
 /* -------------------------------------------------------------------------- */
 
-function setEnergy(level: EnergyLevel): void {
+function syncCheckInForm(): void {
+  const saved = state.value.checkIns[todayKey.value];
+  checkInForm.value = {
+    symptoms: saved?.symptoms ?? '',
+    level: saved?.level ?? state.value.energy,
+    suggestion: saved?.suggested ?? null,
+    suggestionReason: saved?.aiReason ?? '',
+    suggestionSource: saved?.aiReason ? 'ai' : null,
+    status: '',
+    loading: false,
+    editing: false,
+  };
+}
+
+async function suggestCheckInEnergy(): Promise<void> {
+  const symptoms = checkInForm.value.symptoms.trim();
+  if (!symptoms) {
+    checkInForm.value.status = 'Describe your symptoms first, then ask for a suggestion.';
+    return;
+  }
+
+  const store = useAiStore();
+  await store.load();
+  const config = store.config;
+  const configured = !!config.endpoint && !!config.model
+    && (config.provider === 'ollama' || !!config.apiKey);
+
+  if (!configured) {
+    const fallback = heuristicEnergySuggestion(symptoms);
+    checkInForm.value.suggestion = fallback.level;
+    checkInForm.value.suggestionReason = fallback.reason;
+    checkInForm.value.suggestionSource = 'heuristic';
+    checkInForm.value.status = `${EN_NAMES[fallback.level]} suggestion (${fallback.reason}) — AI is not configured, so this is a local estimate.`;
+    return;
+  }
+
+  checkInForm.value.loading = true;
+  checkInForm.value.status = 'Asking AI...';
+  try {
+    const raw = await withTimeout(
+      createAITextProvider(config).complete(buildCheckInPrompt(symptoms)),
+      90_000,
+    );
+    const suggestion = parseEnergySuggestion(raw);
+    if (!suggestion) throw new Error('AI did not return a valid energy level.');
+    checkInForm.value.suggestion = suggestion.level;
+    checkInForm.value.suggestionReason = suggestion.reason;
+    checkInForm.value.suggestionSource = 'ai';
+    checkInForm.value.status = suggestion.reason
+      ? `AI suggests ${EN_NAMES[suggestion.level]}: ${suggestion.reason}`
+      : `AI suggests ${EN_NAMES[suggestion.level]}.`;
+  } catch (error) {
+    const fallback = heuristicEnergySuggestion(symptoms);
+    checkInForm.value.suggestion = fallback.level;
+    checkInForm.value.suggestionReason = fallback.reason;
+    checkInForm.value.suggestionSource = 'heuristic';
+    const detail = error instanceof Error ? error.message : String(error);
+    checkInForm.value.status = `${EN_NAMES[fallback.level]} suggestion (${fallback.reason}) — fallback: ${detail}`;
+  } finally {
+    checkInForm.value.loading = false;
+  }
+}
+
+function acceptCheckInSuggestion(): void {
+  const level = checkInForm.value.suggestion;
+  if (level === null) return;
+  checkInForm.value.level = level;
+  checkInForm.value.status = `Using ${EN_NAMES[level]}. You can still change it before saving.`;
+}
+
+function saveCheckIn(): void {
+  if (checkInLocked.value) return;
+  const symptoms = checkInForm.value.symptoms.trim();
+  if (!symptoms) {
+    checkInForm.value.status = 'Add a short symptom note before saving.';
+    return;
+  }
+
+  const key = todayKey.value;
+  const level = checkInForm.value.level;
   state.value.energy = level;
-  state.value.energyDay = keyOf(new Date());
+  state.value.energyDay = key;
+  state.value.energyHistory[key] = level;
+  const acceptedAi = checkInForm.value.suggestionSource === 'ai'
+    && checkInForm.value.suggestion === level;
+  state.value.checkIns[key] = {
+    symptoms,
+    level,
+    suggested: checkInForm.value.suggestion,
+    aiReason: acceptedAi
+      ? (checkInForm.value.suggestionReason.trim() || recommendedAiReason(level))
+      : null,
+    source: acceptedAi ? 'ai' : 'manual',
+    at: Date.now(),
+  };
   persist();
+  syncCheckInForm();
+  checkInForm.value.status = 'Saved. Today is locked — use Edit check-in to change it.';
+}
+
+function editCheckIn(): void {
+  const saved = state.value.checkIns[todayKey.value];
+  if (!saved) return;
+  checkInForm.value.editing = true;
+  checkInForm.value.symptoms = saved.symptoms;
+  checkInForm.value.level = saved.level;
+  checkInForm.value.suggestion = saved.suggested;
+  checkInForm.value.suggestionReason = saved.aiReason ?? '';
+  checkInForm.value.suggestionSource = saved.aiReason ? 'ai' : null;
+  checkInForm.value.status = 'Editing today’s check-in.';
+}
+
+function cancelCheckInEdit(): void {
+  syncCheckInForm();
+}
+
+function shiftEnergyCalendar(delta: number): void {
+  if (delta > 0 && !canGoForward.value) return;
+  const date = new Date(calendarCursor.value.year, calendarCursor.value.month + delta, 1, 12);
+  calendarCursor.value = { year: date.getFullYear(), month: date.getMonth() };
+}
+
+function goToCurrentEnergyMonth(): void {
+  const today = todayDate.value;
+  calendarCursor.value = { year: today.getFullYear(), month: today.getMonth() };
+}
+
+function shiftEnergyWeek(delta: number): void {
+  if (delta > 0 && !canGoForwardWeek.value) return;
+  weekOffset.value += delta;
+}
+
+function goToCurrentEnergyWeek(): void {
+  weekOffset.value = 0;
+}
+
+function setCalendarMode(mode: CalendarMode): void {
+  if (mode === 'week') {
+    goToCurrentEnergyMonth();
+    goToCurrentEnergyWeek();
+  }
+  calendarMode.value = mode;
+  localSave(CALENDAR_MODE_KEY, mode);
 }
 
 function toggleHabit(habitId: string): void {
   const key = keyOf(new Date());
   const dayLog = (state.value.log[key] ||= {});
   dayLog[habitId] = !dayLog[habitId];
+  persist();
+}
+
+async function removeHabit(habitId: string): Promise<void> {
+  const habit = state.value.habits.find((item) => item.id === habitId);
+  if (!habit) return;
+  if (!await requestConfirm(removeHabitConfirm(habit.name))) return;
+
+  state.value.habits = state.value.habits.filter((item) => item.id !== habitId);
+  for (const dayLog of Object.values(state.value.log)) {
+    delete dayLog[habitId];
+    // The mail routine logs one entry per slot plus a daily summary.
+    if (habit.slots) {
+      delete dayLog.mail;
+      for (const key of Object.keys(dayLog)) {
+        if (key.startsWith('mail_')) delete dayLog[key];
+      }
+    }
+  }
   persist();
 }
 
@@ -183,19 +423,27 @@ function addBulkTasks(lines: string): void {
   persist();
 }
 
-function addHabit(name: string, minutes: number, description: string): void {
+const DEFAULT_HABIT_TEXT: Record<EnergyLevel, string> = {
+  1: 'Light version – keep it short and low-effort.',
+  2: 'Standard version – steady, comfortable effort.',
+  3: 'Deep version – give this your full focus.',
+};
+
+function addHabit(name: string, details: Record<EnergyLevel, { min: number; txt: string }>): void {
   const trimmed = name.trim();
   if (!trimmed) return;
-  const duration = Math.max(1, Math.min(360, minutes || 15));
-  const text = description.trim();
+  const by: Habit['by'] = {};
+  for (const level of [1, 2, 3] as EnergyLevel[]) {
+    const detail = details[level];
+    by[level] = {
+      min: Math.max(1, Math.min(360, detail?.min || 15)),
+      txt: detail?.txt?.trim() || DEFAULT_HABIT_TEXT[level],
+    };
+  }
   const habit: Habit = {
     id: 'h' + Date.now().toString(36),
     name: trimmed,
-    by: {
-      1: { min: duration, txt: text || 'Light version – keep it short and low-effort.' },
-      2: { min: duration, txt: text || 'Standard version – steady, comfortable effort.' },
-      3: { min: duration, txt: text || 'Deep version – give this your full focus.' },
-    },
+    by,
   };
   state.value.habits.push(habit);
   persist();
@@ -412,8 +660,14 @@ function checkDay(): void {
   const key = keyOf(new Date());
   if (key !== shownDay) {
     shownDay = key;
-    state.value.energy = 2;
+    todayKey.value = key;
+    if (calendarMode.value === 'week') {
+      goToCurrentEnergyMonth();
+      goToCurrentEnergyWeek();
+    }
+    state.value.energy = state.value.energyHistory[key] ?? 2;
     state.value.energyDay = key;
+    syncCheckInForm();
     persist();
   }
 }
@@ -432,7 +686,18 @@ export function usePlanner() {
     taskDialogOpen,
     taskForm,
     taskDueStatus,
+    checkInForm,
     // derived
+    checkIn,
+    checkInLocked,
+    deferredTaskCount,
+    energyCalendar,
+    energyWeek,
+    energySummary,
+    calendarMode,
+    weekOffset,
+    canGoForward,
+    canGoForwardWeek,
     habitItems: computed(() => habitView.value.items),
     habitDoneHabits: computed(() => habitView.value.doneHabits),
     habitExpectedHabits: computed(() => habitView.value.expectedHabits),
@@ -445,8 +710,18 @@ export function usePlanner() {
     nowMeta,
     // commands
     init,
-    setEnergy,
+    suggestCheckInEnergy,
+    acceptCheckInSuggestion,
+    saveCheckIn,
+    editCheckIn,
+    cancelCheckInEdit,
+    shiftEnergyCalendar,
+    goToCurrentEnergyMonth,
+    shiftEnergyWeek,
+    goToCurrentEnergyWeek,
+    setCalendarMode,
     toggleHabit,
+    removeHabit,
     toggleSlot,
     taskAction,
     addTask,

@@ -88,8 +88,20 @@ function onBulkAdd(): void {
 </template>
 
 <style scoped>
-#task-add-panel { margin-bottom: var(--spacing-12); padding: var(--spacing-12); background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 92%, var(--bg)) 0%, var(--surface-2) 100%); border: 1px solid color-mix(in srgb, var(--line) 90%, transparent); border-radius: var(--radius-cards); box-shadow: inset 0 1px 2px color-mix(in srgb, black 8%, transparent), 0 1px 0 color-mix(in srgb, white 25%, transparent); }
-.task-add-form { display: flex; flex-wrap: wrap; gap: var(--spacing-12); row-gap: var(--spacing-14, 14px); align-items: flex-end; }
+#task-add-panel { 
+  margin-bottom: var(--spacing-12); 
+  padding: var(--spacing-12); 
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 92%, var(--bg)) 0%, var(--surface-2) 100%); 
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent); 
+  border-radius: var(--radius-cards); 
+  box-shadow: inset 0 1px 2px color-mix(in srgb, black 8%, transparent), 0 1px 0 color-mix(in srgb, white 25%, transparent); 
+}
+.task-add-form { 
+  display: flex; 
+  flex-wrap: wrap; 
+  gap: var(--spacing-12); 
+  row-gap: var(--spacing-14, 14px); 
+  align-items: flex-end; }
 .task-add-form .grow { flex: 1 1 200px; min-width: 0; }
 .task-add-form .field-due { flex: 0 0 190px; min-width: 0; }
 .task-add-form .field-minutes { flex: 0 0 140px; min-width: 0; }

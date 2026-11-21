@@ -103,6 +103,11 @@
   --e2-bg: #fef3c7;
   --e3: var(--color-terminal-green);
   --e3-bg: #eaf5ec;
+
+  /* Thyroid dashboard series colors */
+  --thyroid-tsh-line: #118833;
+  --thyroid-ft4-line: #2277cc;
+  --thyroid-ft3-line: #dd3333;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -538,6 +543,33 @@ h1 {
   gap: 6px;
 }
 
+.habit-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.habit-remove:hover,
+.habit-remove:focus-visible {
+  opacity: 1;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
 .sec-head-actions {
   display: flex;
   align-items: center;
@@ -678,85 +710,6 @@ h1 {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
     0 1px 2px color-mix(in srgb, black 18%, transparent);
-}
-
-.hfoot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-10, 10px);
-  flex-wrap: wrap;
-}
-
-/* Streak Dots */
-.dots {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.dots i {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-full);
-  border: 1.5px solid var(--line);
-  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
-  color: var(--ink-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-style: normal;
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  line-height: 1;
-  box-sizing: border-box;
-}
-
-.dots i.done {
-  background: var(--ok);
-  border-color: var(--ok);
-  color: var(--color-pure-white);
-}
-
-.dots i.today {
-  border: 2px solid var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.dots i.today.done {
-  background: var(--ok);
-  border-color: var(--accent);
-  color: var(--color-pure-white);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.dots i.missed {
-  color: var(--ink-2);
-  border-color: color-mix(in srgb, var(--line) 90%, var(--color-ash));
-  background: color-mix(in srgb, var(--surface) 85%, var(--surface-2));
-}
-
-.dots i.missed::after {
-  content: "";
-  position: absolute;
-  width: 54%;
-  height: 2px;
-  border-radius: 2px;
-  background: currentColor;
-  opacity: 0.35;
-  transform: rotate(-18deg);
-}
-
-.dots i.future,
-.dots i.off {
-  opacity: 0.45;
-  color: var(--ink-2);
-  border-style: dashed;
-  background: transparent;
-  box-shadow: none;
 }
 
 /* Add Task Form */
@@ -1556,6 +1509,7 @@ button.task-editable {
   font-size: 13px;
   font-weight: var(--font-weight-medium);
   line-height: 1;
+  text-decoration: none;
   white-space: nowrap;
   text-shadow: 0 1px 0 color-mix(in srgb, white 18%, transparent);
   box-shadow: none;
@@ -1627,8 +1581,29 @@ button.task-editable {
   resize: vertical;
 }
 
+/* Dialog content is teleported outside .thyroid-view, so style it standalone. */
+.thyroid-json-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 180px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-buttons);
+  background: var(--surface);
+  color: var(--ink);
+  padding: var(--spacing-12);
+  font-family: var(--font-geist-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
 .thyroid-form input {
   min-height: 36px;
+}
+
+/* AppDateField owns its own input sizing; neutralise the thyroid form rules. */
+.thyroid-form .app-control .el-input__inner {
+  min-height: 30px;
+  padding: 0;
 }
 
 .thyroid-form {
@@ -1899,55 +1874,6 @@ button.task-editable {
   cursor: pointer;
 }
 
-.thyroid-date-row {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-}
-
-.thyroid-date-row input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  min-height: 36px;
-  box-sizing: border-box;
-  padding-right: 40px;
-}
-
-.thyroid-date-picker-btn {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  box-sizing: border-box;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  font-size: 16px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 1;
-}
-
-.thyroid-date-picker-btn:hover {
-  color: var(--ink);
-}
-
-.thyroid-date-picker-hidden {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-  width: 0;
-  height: 0;
-  border: 0;
-  padding: 0;
-}
-
 .thyroid-dashboard {
   margin-bottom: var(--spacing-24);
 }
@@ -2016,37 +1942,45 @@ button.task-editable {
   gap: var(--spacing-12);
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-16);
 }
 
 .thyroid-dashboard-filters {
   display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.thyroid-dashboard-filters .thyroid-dash-filter,
-.thyroid-dashboard-filters .thyroid-dash-overlay {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
-}
-
-.thyroid-dashboard-filters .active {
-  background: var(--surface-inverted-surface);
-  color: var(--accent-ink);
-  border-color: var(--surface-inverted-surface);
-}
-
-.thyroid-dash-series-label {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+}
+
+/* Match the planner's filter pills. The overlay buttons are siblings of
+   .thyroid-dashboard-filters, so scope these to the shared controls row. */
+.thyroid-dashboard-controls .thyroid-dash-filter,
+.thyroid-dashboard-controls .thyroid-dash-overlay {
+  min-height: 30px;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pills);
+  background: transparent;
   color: var(--ink-2);
-  padding: 0 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.thyroid-dashboard-controls .thyroid-dash-filter:hover,
+.thyroid-dashboard-controls .thyroid-dash-overlay:hover {
+  opacity: 0.85;
+}
+
+.thyroid-dashboard-controls .active {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
 }
 
 .thyroid-dash-swatch {
@@ -2056,9 +1990,9 @@ button.task-editable {
   border-radius: 2px;
 }
 
-.thyroid-dash-swatch-tsh { background: var(--accent); }
-.thyroid-dash-swatch-ft4 { background: var(--e1); }
-.thyroid-dash-swatch-ft3 { background: var(--e2); }
+.thyroid-dash-swatch-tsh { background: var(--thyroid-tsh-line); }
+.thyroid-dash-swatch-ft4 { background: var(--thyroid-ft4-line); }
+.thyroid-dash-swatch-ft3 { background: var(--thyroid-ft3-line); }
 
 .thyroid-dashboard-chart {
   width: 100%;

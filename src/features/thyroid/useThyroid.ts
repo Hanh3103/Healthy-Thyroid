@@ -8,6 +8,7 @@
 import { computed, reactive, ref } from 'vue';
 import { createWorker } from 'tesseract.js';
 import { uid } from '../../shared/utils';
+import { buildDemoRecords, DEMO_ID_PREFIX } from './demoData';
 import {
   loadThyroid,
   normalizeAppointment,
@@ -81,6 +82,7 @@ const editRequestId = ref(0);
 
 const dashboardRange = ref<DashboardRange>('all');
 const overlays = ref<OverlayKey[]>([]);
+const showTsh = ref(true);
 
 const bannerOverride = ref<string | null>(null);
 const bannerDismissed = ref(false);
@@ -106,9 +108,11 @@ const appointmentCard = computed(() => buildAppointmentCard(
   bannerDismissed.value ? null : bannerOverride.value,
 ));
 
-const dashboard = computed(() => buildDashboard(records.value, dashboardRange.value, overlays.value));
+const dashboard = computed(() => buildDashboard(records.value, dashboardRange.value, overlays.value, showTsh.value));
 
 const history = computed(() => buildHistory(records.value, customTests.value));
+
+const hasDemoRecords = computed(() => records.value.some((record) => record.id.startsWith(DEMO_ID_PREFIX)));
 
 // --- persistence ------------------------------------------------------------
 
@@ -525,6 +529,40 @@ function toggleOverlay(key: OverlayKey): void {
     : [...overlays.value, key];
 }
 
+function toggleTsh(): void {
+  showTsh.value = !showTsh.value;
+}
+
+/** Dev helper: append 20 sample records and show all three dashboard series. */
+function loadDemoRecords(): void {
+  const existing = new Set(records.value.map((record) => record.id));
+  const missing = buildDemoRecords().filter((record) => !existing.has(record.id));
+  if (missing.length) {
+    records.value = [...records.value, ...missing].sort((a, b) => a.date.localeCompare(b.date));
+    persist();
+  }
+  dashboardRange.value = 'all';
+  overlays.value = ['freeT4', 'freeT3'];
+  showTsh.value = true;
+  scanStatus.value = missing.length
+    ? `Loaded ${missing.length} demo blood result${missing.length === 1 ? '' : 's'}.`
+    : 'The 20 demo blood results are already loaded.';
+}
+
+/** Dev helper: remove only the sample records, leaving any real data intact. */
+function unloadDemoRecords(): void {
+  const removed = records.value.filter((record) => record.id.startsWith(DEMO_ID_PREFIX)).length;
+  if (!removed) return;
+  records.value = records.value.filter((record) => !record.id.startsWith(DEMO_ID_PREFIX));
+  persist();
+  scanStatus.value = `Removed ${removed} demo blood result${removed === 1 ? '' : 's'}.`;
+}
+
+function toggleDemoRecords(): void {
+  if (hasDemoRecords.value) unloadDemoRecords();
+  else loadDemoRecords();
+}
+
 export function useThyroid() {
   return {
     // reactive state
@@ -544,6 +582,7 @@ export function useThyroid() {
     editRequestId,
     dashboardRange,
     overlays,
+    showTsh,
     dialogs,
     appointmentForm,
     frequencyInput,
@@ -556,6 +595,7 @@ export function useThyroid() {
     appointmentCard,
     dashboard,
     history,
+    hasDemoRecords,
 
     // pure helpers exposed for templates
     fields: FIELD_DEFINITIONS,
@@ -592,6 +632,10 @@ export function useThyroid() {
     completeFirstRun,
     setDashboardRange,
     toggleOverlay,
+    toggleTsh,
+    loadDemoRecords,
+    unloadDemoRecords,
+    toggleDemoRecords,
     openAppointmentDialog,
     closeAppointmentDialog,
     setAppointmentDateText,
