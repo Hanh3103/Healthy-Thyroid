@@ -1,13 +1,13 @@
 /**
  * Profile persistence boundary.
  *
- * In Tauri the AI config is stored in `profile.json` via the `load_profile` /
- * `save_profile` commands. On first run, legacy localStorage keys are migrated
- * into that file. In the browser we keep using localStorage so `npm run dev`
- * needs no Rust backend.
+ * `profile.json` holds one document: { ai: AIConfig, diet: DietSettings }.
+ * Legacy files that stored a bare AI config are migrated on first load; in the
+ * browser the same values live in localStorage so `npm run dev` needs no Rust.
  */
-import { isTauri, tauriLoad, tauriSave, localLoad, localSave, localRemove } from '../../shared/platform';
-import { emptyConfig, normalizeConfig, type AIConfig } from './model';
+import { isTauri, tauriLoad, tauriSave, localLoad, localSave, localRemove } from '../../shared/platform.ts';
+import { emptyConfig, normalizeConfig, type AIConfig } from './model.ts';
+import { DEFAULT_DIET_SETTINGS, normalizeDietSettings, type DietSettings } from './dietSettings.ts';
 
 const LEGACY_KEYS = {
   provider: 'ai_provider',
@@ -15,6 +15,16 @@ const LEGACY_KEYS = {
   endpoint: 'ai_endpoint',
   model: 'ai_model',
 } as const;
+const DIET_SETTINGS_KEY = 'profile_diet_settings_v1';
+
+export interface ProfileData {
+  ai: AIConfig;
+  diet: DietSettings;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function readLegacyConfig(): AIConfig {
   return normalizeConfig({
@@ -29,35 +39,88 @@ function removeLegacyKeys(): void {
   Object.values(LEGACY_KEYS).forEach((key) => localRemove(key));
 }
 
-/** Loads the shared AI config, migrating legacy browser data on first Tauri run. */
-export async function loadAiConfig(): Promise<AIConfig> {
-  if (!isTauri()) return readLegacyConfig();
+function parseProfile(value: unknown): ProfileData {
+  if (isRecord(value) && isRecord(value.ai)) {
+    return { ai: normalizeConfig(value.ai), diet: normalizeDietSettings(value.diet) };
+  }
+  /* A bare AI config is the legacy shape. */
+  if (isRecord(value) && ('provider' in value || 'apiKey' in value || 'endpoint' in value || 'model' in value)) {
+    return { ai: normalizeConfig(value), diet: normalizeDietSettings(localLoad(DIET_SETTINGS_KEY)) };
+  }
+  return { ai: emptyConfig(), diet: DEFAULT_DIET_SETTINGS };
+}
 
-  const stored = await tauriLoad<unknown>('load_profile');
-  if (stored) return normalizeConfig(stored);
+function hasAiConfig(config: AIConfig): boolean {
+  return config.provider !== 'custom' || !!config.apiKey || !!config.endpoint || !!config.model;
+}
 
-  const legacy = readLegacyConfig();
-  if (legacy.provider !== 'custom' || legacy.apiKey || legacy.endpoint || legacy.model) {
-    if (await tauriSave('save_profile', legacy)) {
+/** Loads both AI config and diet settings, migrating legacy browser data once. */
+export async function loadProfileData(): Promise<ProfileData> {
+  if (isTauri()) {
+    const stored = await tauriLoad<unknown>('load_profile');
+    if (stored) {
+      const parsed = parseProfile(stored);
+      /* Rewrite the old bare-config document into the versioned shape. */
+      if (!isRecord(stored) || !isRecord(stored.ai)) await tauriSave('save_profile', parsed);
+      return parsed;
+    }
+    const legacy = parseProfile({ ...readLegacyConfig(), diet: localLoad(DIET_SETTINGS_KEY) });
+    if (hasAiConfig(legacy.ai) || localLoad(DIET_SETTINGS_KEY)) {
+      await tauriSave('save_profile', legacy);
       removeLegacyKeys();
+      localRemove(DIET_SETTINGS_KEY);
     }
     return legacy;
   }
-  return emptyConfig();
+
+  const stored = localLoad<unknown>('profile_v1');
+  if (stored) return parseProfile(stored);
+  const legacy = parseProfile({ ...readLegacyConfig(), diet: localLoad(DIET_SETTINGS_KEY) });
+  localSave('profile_v1', legacy);
+  removeLegacyKeys();
+  localRemove(DIET_SETTINGS_KEY);
+  return legacy;
 }
 
-/** Persists the shared AI config. */
-export async function saveAiConfig(config: AIConfig): Promise<void> {
-  const normalized = normalizeConfig(config);
+/** Persists the whole profile document. */
+export async function saveProfileData(data: ProfileData): Promise<void> {
+  const normalized: ProfileData = {
+    ai: normalizeConfig(data.ai),
+    diet: normalizeDietSettings(data.diet),
+  };
   if (isTauri()) {
     await tauriSave('save_profile', normalized);
     return;
   }
-  localSave(LEGACY_KEYS.provider, normalized.provider);
-  if (normalized.apiKey) localSave(LEGACY_KEYS.apiKey, normalized.apiKey);
+  localSave('profile_v1', normalized);
+  /* Keep the legacy keys in sync for older dev builds that still read them. */
+  localSave(LEGACY_KEYS.provider, normalized.ai.provider);
+  if (normalized.ai.apiKey) localSave(LEGACY_KEYS.apiKey, normalized.ai.apiKey);
   else localRemove(LEGACY_KEYS.apiKey);
-  if (normalized.endpoint) localSave(LEGACY_KEYS.endpoint, normalized.endpoint);
+  if (normalized.ai.endpoint) localSave(LEGACY_KEYS.endpoint, normalized.ai.endpoint);
   else localRemove(LEGACY_KEYS.endpoint);
-  if (normalized.model) localSave(LEGACY_KEYS.model, normalized.model);
+  if (normalized.ai.model) localSave(LEGACY_KEYS.model, normalized.ai.model);
   else localRemove(LEGACY_KEYS.model);
+}
+
+/** Loads the shared AI config (used by the existing Pinia store). */
+export async function loadAiConfig(): Promise<AIConfig> {
+  return (await loadProfileData()).ai;
+}
+
+/** Persists the shared AI config without disturbing diet settings. */
+export async function saveAiConfig(config: AIConfig): Promise<void> {
+  const current = await loadProfileData();
+  await saveProfileData({ ...current, ai: config });
+}
+
+/** Loads the Profile-owned diet settings used by the Diet Advisor. */
+export async function loadDietSettings(): Promise<DietSettings> {
+  return (await loadProfileData()).diet;
+}
+
+/** Persists diet settings without disturbing the AI config. */
+export async function saveDietSettings(settings: DietSettings): Promise<void> {
+  const current = await loadProfileData();
+  await saveProfileData({ ...current, diet: settings });
 }

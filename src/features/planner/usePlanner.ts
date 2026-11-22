@@ -37,12 +37,8 @@ import {
   type Habit,
   type Task,
 } from './model';
-import {
-  buildCheckInPrompt,
-  heuristicEnergySuggestion,
-  parseEnergySuggestion,
-  recommendedAiReason,
-} from './checkin';
+import { recommendedAiReason } from './checkin';
+import { requestCheckInSuggestion } from './checkinAi';
 import { loadPlanner, savePlanner } from './api';
 import { localLoad, localSave } from '../../shared/platform';
 import { keyOf } from '../../shared/utils';
@@ -228,43 +224,14 @@ async function suggestCheckInEnergy(): Promise<void> {
     return;
   }
 
-  const store = useAiStore();
-  await store.load();
-  const config = store.config;
-  const configured = !!config.endpoint && !!config.model
-    && (config.provider === 'ollama' || !!config.apiKey);
-
-  if (!configured) {
-    const fallback = heuristicEnergySuggestion(symptoms);
-    checkInForm.value.suggestion = fallback.level;
-    checkInForm.value.suggestionReason = fallback.reason;
-    checkInForm.value.suggestionSource = 'heuristic';
-    checkInForm.value.status = `${EN_NAMES[fallback.level]} suggestion (${fallback.reason}) — AI is not configured, so this is a local estimate.`;
-    return;
-  }
-
   checkInForm.value.loading = true;
   checkInForm.value.status = 'Asking AI...';
   try {
-    const raw = await withTimeout(
-      createAITextProvider(config).complete(buildCheckInPrompt(symptoms)),
-      90_000,
-    );
-    const suggestion = parseEnergySuggestion(raw);
-    if (!suggestion) throw new Error('AI did not return a valid energy level.');
-    checkInForm.value.suggestion = suggestion.level;
-    checkInForm.value.suggestionReason = suggestion.reason;
-    checkInForm.value.suggestionSource = 'ai';
-    checkInForm.value.status = suggestion.reason
-      ? `AI suggests ${EN_NAMES[suggestion.level]}: ${suggestion.reason}`
-      : `AI suggests ${EN_NAMES[suggestion.level]}.`;
-  } catch (error) {
-    const fallback = heuristicEnergySuggestion(symptoms);
-    checkInForm.value.suggestion = fallback.level;
-    checkInForm.value.suggestionReason = fallback.reason;
-    checkInForm.value.suggestionSource = 'heuristic';
-    const detail = error instanceof Error ? error.message : String(error);
-    checkInForm.value.status = `${EN_NAMES[fallback.level]} suggestion (${fallback.reason}) — fallback: ${detail}`;
+    const result = await requestCheckInSuggestion(symptoms);
+    checkInForm.value.suggestion = result.suggestion.level;
+    checkInForm.value.suggestionReason = result.suggestion.reason;
+    checkInForm.value.suggestionSource = result.suggestion.source;
+    checkInForm.value.status = result.status;
   } finally {
     checkInForm.value.loading = false;
   }

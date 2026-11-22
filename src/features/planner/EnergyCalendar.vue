@@ -389,7 +389,7 @@ function levelText(day: EnergyCalendarDay): string {
 }
 
 .level-cell[data-level] .week-level {
-  color: color-mix(in srgb, var(--day-color) 70%, var(--ink));
+  color: var(--day-color);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -497,19 +497,19 @@ function levelText(day: EnergyCalendarDay): string {
 
 /* Shared day colours */
 .level-cell[data-level="1"] {
-  --day-color: #d97706;
+  --day-color: var(--energy-low);
   background: color-mix(in srgb, var(--day-color) 18%, var(--surface));
   border-color: color-mix(in srgb, var(--day-color) 42%, var(--line));
 }
 
 .level-cell[data-level="2"] {
-  --day-color: #65a30d;
+  --day-color: var(--energy-medium);
   background: color-mix(in srgb, var(--day-color) 18%, var(--surface));
   border-color: color-mix(in srgb, var(--day-color) 42%, var(--line));
 }
 
 .level-cell[data-level="3"] {
-  --day-color: #16a34a;
+  --day-color: var(--energy-high);
   background: color-mix(in srgb, var(--day-color) 18%, var(--surface));
   border-color: color-mix(in srgb, var(--day-color) 42%, var(--line));
 }
@@ -602,9 +602,9 @@ function levelText(day: EnergyCalendarDay): string {
   background: var(--legend-color);
 }
 
-.legend-item[data-level="1"] { --legend-color: #d97706; }
-.legend-item[data-level="2"] { --legend-color: #65a30d; }
-.legend-item[data-level="3"] { --legend-color: #16a34a; }
+.legend-item[data-level="1"] { --legend-color: var(--energy-low); }
+.legend-item[data-level="2"] { --legend-color: var(--energy-medium); }
+.legend-item[data-level="3"] { --legend-color: var(--energy-high); }
 
 .legend-item strong {
   color: var(--ink);

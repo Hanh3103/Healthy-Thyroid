@@ -1,0 +1,90 @@
+[
+  {
+    "id": "T1",
+    "text": "Thyroid medication is usually taken the same way every day, on an empty stomach with water, and 30 to 60 minutes before breakfast.",
+    "evidence": "strong",
+    "source": {
+      "title": "American Thyroid Association — Taking thyroid medication",
+      "url": "https://www.thyroid.org/thyroid-medication/"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T2",
+    "text": "Coffee taken at the same time can reduce absorption of levothyroxine; wait 30 to 60 minutes.",
+    "evidence": "moderate",
+    "source": {
+      "title": "Levothyroxine food and drink interaction review",
+      "url": "https://www.drugs.com/pro/levothyroxine.html"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T3",
+    "text": "Calcium, iron supplements and antacids should be separated from the dose by about 4 hours.",
+    "evidence": "strong",
+    "source": {
+      "title": "American Thyroid Association — Thyroid medication interactions",
+      "url": "https://www.thyroid.org/thyroid-medication/"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T4",
+    "text": "Soy and very high-fiber foods may reduce absorption if taken together with the dose; keep timing consistent.",
+    "evidence": "limited",
+    "source": {
+      "title": "American Thyroid Association — Thyroid medication and food",
+      "url": "https://www.thyroid.org/thyroid-medication/"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T5",
+    "text": "Biotin supplements can distort thyroid blood tests; ask the doctor whether to pause before a test.",
+    "evidence": "strong",
+    "source": {
+      "title": "American Thyroid Association — Thyroid function tests",
+      "url": "https://www.thyroid.org/thyroid-function-tests/"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T6",
+    "text": "Avoid high-dose iodine and kelp supplements; both too little and too much iodine can affect the thyroid.",
+    "evidence": "strong",
+    "source": {
+      "title": "American Thyroid Association — Iodine and thyroid disease",
+      "url": "https://www.thyroid.org/iodine-deficiency/"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T7",
+    "text": "Selenium: the evidence is mixed; no high-dose supplements without a doctor.",
+    "evidence": "limited",
+    "source": {
+      "title": "NIH Office of Dietary Supplements — Selenium",
+      "url": "https://ods.od.nih.gov/factsheets/Selenium-HealthProfessional/"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": false
+  },
+  {
+    "id": "T8",
+    "text": "A gluten-free diet has no evidence of reducing symptoms in autoimmune thyroid disease, and the lab-value evidence is small and weak. It is needed only for coeliac disease.",
+    "evidence": "limited",
+    "source": {
+      "title": "American Academy of Family Physicians — Gluten-free diets and thyroid disease",
+      "url": "https://www.aafp.org/pubs/afp/issues/2019/0615/p756.html"
+    },
+    "lastReviewed": "2026-11-21",
+    "verified": true
+  }
+]

@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { usePlanner } from './usePlanner';
-import EnergyPicker from './EnergyPicker.vue';
+import CheckInForm from './CheckInForm.vue';
 import AppButton from '../../shared/ui/AppButton.vue';
-import AppFormActions from '../../shared/ui/AppFormActions.vue';
 import { EN_NAMES } from './model';
 import { parseSymptomChips } from './checkin';
 
@@ -16,12 +15,6 @@ const {
   deferredTaskCount,
   energyHint,
 } = planner;
-
-const suggestionLabel = computed(() => (
-  checkInForm.value.suggestion === null
-    ? ''
-    : EN_NAMES[checkInForm.value.suggestion]
-));
 
 const savedLevel = computed(() => checkIn.value?.level ?? 2);
 const savedLabel = computed(() => EN_NAMES[savedLevel.value]);
@@ -128,56 +121,29 @@ function focusToday(): void {
       </button>
     </div>
 
-    <form v-else class="checkin-form" @submit.prevent="planner.saveCheckIn">
-      <label class="checkin-label" for="checkin-symptoms">How do you feel today?</label>
-      <textarea
-        id="checkin-symptoms"
-        v-model="checkInForm.symptoms"
-        class="checkin-input"
-        rows="3"
-        maxlength="1000"
-        placeholder="Sleep, pain, focus, stress, anything relevant…"
-        :disabled="checkInForm.loading"
-      ></textarea>
-
-      <div class="checkin-actions">
-        <AppButton
-          variant="ghost"
-          size="sm"
-          :loading="checkInForm.loading"
-          :disabled="!checkInForm.symptoms.trim() || checkInForm.loading"
-          @click="planner.suggestCheckInEnergy"
-        >Suggest energy</AppButton>
-      </div>
-
-      <div v-if="checkInForm.suggestion !== null" class="checkin-suggestion" role="status">
-        <span>AI suggests <strong>{{ suggestionLabel }}</strong></span>
-        <button type="button" class="accept-suggestion" @click="planner.acceptCheckInSuggestion">
-          Accept
-        </button>
-      </div>
-
-      <fieldset class="checkin-energy">
-        <legend id="checkin-energy-label">My energy level</legend>
-        <EnergyPicker
-          :model-value="checkInForm.level"
-          aria-labelledby="checkin-energy-label"
-          @update:model-value="(level) => checkInForm.level = level"
-        />
-      </fieldset>
-
-      <p v-if="deferredTaskCount" class="muted">
-        {{ deferredTaskCount }} high-focus task{{ deferredTaskCount === 1 ? '' : 's' }} will be parked at this level.
-      </p>
-      <p class="muted checkin-status" role="status">{{ checkInForm.status }}</p>
-
-      <AppFormActions class="checkin-form-actions">
-        <AppButton variant="ghost" size="sm" type="button" :equal="true" @click="planner.cancelCheckInEdit">Cancel</AppButton>
-        <AppButton variant="primary" size="sm" type="submit" :equal="true">Save</AppButton>
-      </AppFormActions>
-
-      <p class="muted energy-hint" id="energy-hint">{{ energyHint }}</p>
-    </form>
+    <CheckInForm
+      v-else
+      id-prefix="checkin"
+      label="How do you feel today?"
+      :symptoms="checkInForm.symptoms"
+      :level="checkInForm.level"
+      :suggestion="checkInForm.suggestion"
+      :status="checkInForm.status"
+      :loading="checkInForm.loading"
+      @update:symptoms="checkInForm.symptoms = $event"
+      @update:level="checkInForm.level = $event"
+      @suggest="planner.suggestCheckInEnergy"
+      @accept="planner.acceptCheckInSuggestion"
+      @save="planner.saveCheckIn"
+      @cancel="planner.cancelCheckInEdit"
+    >
+      <template #before-actions>
+        <p v-if="deferredTaskCount" class="muted">
+          {{ deferredTaskCount }} high-focus task{{ deferredTaskCount === 1 ? '' : 's' }} will be parked at this level.
+        </p>
+        <p class="muted energy-hint" id="energy-hint">{{ energyHint }}</p>
+      </template>
+    </CheckInForm>
   </section>
 </template>
 
@@ -197,68 +163,24 @@ function focusToday(): void {
 }
 
 .daily-checkin[data-level="1"] {
-  --saved-color: #b45309;
-  --saved-muted: #6b3d06;
-  --saved-tint: #fffbeb;
-  --saved-soft: #fef3c7;
+  --saved-color: var(--energy-low);
+  --saved-muted: color-mix(in srgb, var(--energy-low) 72%, var(--ink));
+  --saved-tint: color-mix(in srgb, var(--energy-low) 10%, var(--surface));
+  --saved-soft: color-mix(in srgb, var(--energy-low) 16%, var(--surface));
 }
 
 .daily-checkin[data-level="2"] {
-  --saved-color: #0f766e;
-  --saved-muted: #0b5f59;
-  --saved-tint: #f0fdfa;
-  --saved-soft: #ccfbf1;
+  --saved-color: var(--energy-medium);
+  --saved-muted: color-mix(in srgb, var(--energy-medium) 72%, var(--ink));
+  --saved-tint: color-mix(in srgb, var(--energy-medium) 10%, var(--surface));
+  --saved-soft: color-mix(in srgb, var(--energy-medium) 16%, var(--surface));
 }
 
 .daily-checkin[data-level="3"] {
-  --saved-color: #15803d;
-  --saved-muted: #14532d;
-  --saved-tint: #f0fdf4;
-  --saved-soft: #dcfce7;
-}
-
-@media (prefers-color-scheme: dark) {
-  .daily-checkin[data-level="1"] {
-    --saved-color: #fbbf24;
-    --saved-muted: #fde68a;
-    --saved-tint: #2b1a06;
-    --saved-soft: #3b2508;
-  }
-
-  .daily-checkin[data-level="2"] {
-    --saved-color: #2dd4bf;
-    --saved-muted: #99f6e4;
-    --saved-tint: #052e2b;
-    --saved-soft: #064e3b;
-  }
-
-  .daily-checkin[data-level="3"] {
-    --saved-color: #4ade80;
-    --saved-muted: #bbf7d0;
-    --saved-tint: #072714;
-    --saved-soft: #0f3d22;
-  }
-}
-
-:root[data-theme="dark"] .daily-checkin[data-level="1"] {
-  --saved-color: #fbbf24;
-  --saved-muted: #fde68a;
-  --saved-tint: #2b1a06;
-  --saved-soft: #3b2508;
-}
-
-:root[data-theme="dark"] .daily-checkin[data-level="2"] {
-  --saved-color: #2dd4bf;
-  --saved-muted: #99f6e4;
-  --saved-tint: #052e2b;
-  --saved-soft: #064e3b;
-}
-
-:root[data-theme="dark"] .daily-checkin[data-level="3"] {
-  --saved-color: #4ade80;
-  --saved-muted: #bbf7d0;
-  --saved-tint: #072714;
-  --saved-soft: #0f3d22;
+  --saved-color: var(--energy-high);
+  --saved-muted: color-mix(in srgb, var(--energy-high) 72%, var(--ink));
+  --saved-tint: color-mix(in srgb, var(--energy-high) 10%, var(--surface));
+  --saved-soft: color-mix(in srgb, var(--energy-high) 16%, var(--surface));
 }
 
 .checkin-header {

@@ -142,9 +142,9 @@ function onSubmit(): void {
   white-space: nowrap;
 }
 
-.energy-detail-label[data-tone="low"] { --energy-tone: #d97706; color: var(--energy-tone); }
-.energy-detail-label[data-tone="mid"] { --energy-tone: #65a30d; color: var(--energy-tone); }
-.energy-detail-label[data-tone="high"] { --energy-tone: #16a34a; color: var(--energy-tone); }
+.energy-detail-label[data-tone="low"] { --energy-tone: var(--energy-low); color: var(--energy-tone); }
+.energy-detail-label[data-tone="mid"] { --energy-tone: var(--energy-medium); color: var(--energy-tone); }
+.energy-detail-label[data-tone="high"] { --energy-tone: var(--energy-high); color: var(--energy-tone); }
 
 .habit-form-actions { justify-content: flex-end; }
 

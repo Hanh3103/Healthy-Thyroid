@@ -96,6 +96,21 @@
   --ok: var(--color-terminal-green);
   --danger: #cf222e;
 
+  /* Energy level colors (single source of truth) */
+  --energy-low: #d97706;
+  --energy-medium: #65a30d;
+  --energy-high: #16a34a;
+
+  /* Meal slot colors (meal cards only) */
+  --meal-breakfast-text: #1D4ED8;
+  --meal-breakfast-tint: #E4ECFD;
+  --meal-lunch-text: #0F766E;
+  --meal-lunch-tint: #DDF3F0;
+  --meal-dinner-text: #6D28D9;
+  --meal-dinner-tint: #EFE9FD;
+  --meal-snack-text: #BE185D;
+  --meal-snack-tint: #FCE7F1;
+
   /* Energy Tier Colors */
   --e1: #2563eb;
   --e1-bg: #eff6ff;
@@ -123,6 +138,19 @@
     --color-charcoal: #e5e5e5;
     --color-obsidian: #f5f5f5;
     --color-terminal-green: #3fb950;
+
+    --energy-low: #f59e0b;
+    --energy-medium: #84cc16;
+    --energy-high: #4ade80;
+
+    --meal-breakfast-text: #93b4fd;
+    --meal-breakfast-tint: #172554;
+    --meal-lunch-text: #5eead4;
+    --meal-lunch-tint: #042f2e;
+    --meal-dinner-text: #c4b5fd;
+    --meal-dinner-tint: #2e1065;
+    --meal-snack-text: #f9a8d4;
+    --meal-snack-tint: #500724;
 
     --surface-page-canvas: #0a0a0a;
     --surface-card-surface: #141414;
@@ -161,6 +189,19 @@
   --color-charcoal: #e5e5e5;
   --color-obsidian: #f5f5f5;
   --color-terminal-green: #3fb950;
+
+  --energy-low: #f59e0b;
+  --energy-medium: #84cc16;
+  --energy-high: #4ade80;
+
+  --meal-breakfast-text: #93b4fd;
+  --meal-breakfast-tint: #172554;
+  --meal-lunch-text: #5eead4;
+  --meal-lunch-tint: #042f2e;
+  --meal-dinner-text: #c4b5fd;
+  --meal-dinner-tint: #2e1065;
+  --meal-snack-text: #f9a8d4;
+  --meal-snack-tint: #500724;
 
   --surface-page-canvas: #0a0a0a;
   --surface-card-surface: #141414;
@@ -404,18 +445,18 @@ h1 {
 }
 
 .energy-segment[data-tone="low"] {
-  --energy-tone: #d97706;
-  --energy-tone-soft: #f59e0b;
+  --energy-tone: var(--energy-low);
+  --energy-tone-soft: color-mix(in srgb, var(--energy-low) 75%, white);
 }
 
 .energy-segment[data-tone="mid"] {
-  --energy-tone: #65a30d;
-  --energy-tone-soft: #84cc16;
+  --energy-tone: var(--energy-medium);
+  --energy-tone-soft: color-mix(in srgb, var(--energy-medium) 75%, white);
 }
 
 .energy-segment[data-tone="high"] {
-  --energy-tone: #16a34a;
-  --energy-tone-soft: #22c55e;
+  --energy-tone: var(--energy-high);
+  --energy-tone-soft: color-mix(in srgb, var(--energy-high) 75%, white);
 }
 
 .energy-segment:hover {

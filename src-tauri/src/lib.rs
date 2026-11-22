@@ -21,6 +21,13 @@ pub fn run() {
             // Diet Advisor
             commands::diet::load_diet,
             commands::diet::save_diet,
+            commands::diet::suggest_meals,
+            commands::diet::update_shopping_list,
+            commands::diet::suggest_meal_alternative,
+            commands::diet::get_last_plan,
+            commands::diet::save_preferences,
+            commands::diet::save_last_plan,
+            commands::diet::save_consent,
             // Profile
             commands::profile::load_profile,
             commands::profile::save_profile,
