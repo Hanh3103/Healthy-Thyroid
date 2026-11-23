@@ -5,19 +5,36 @@
  * helper deliberately uses the local heuristic so symptom notes stay on the
  * device and no API key is needed in the webview.
  */
+import { isTauri } from '../../shared/platform';
 import { EN_NAMES } from './model';
 import {
   heuristicEnergySuggestion,
   type EnergySuggestion,
 } from './checkin';
+import { suggestEnergy } from './api';
 
 export interface CheckInSuggestionResult {
   suggestion: EnergySuggestion;
   status: string;
 }
 
-/** Returns a conservative local estimate; never sends the symptom note. */
+/** Calls the desktop AI suggest_energy command, falling back to local heuristic if unavailable. */
 export async function requestCheckInSuggestion(symptoms: string): Promise<CheckInSuggestionResult> {
+  if (isTauri()) {
+    try {
+      const result = await suggestEnergy(symptoms);
+      return {
+        suggestion: {
+          level: result.level,
+          reason: result.reason,
+          source: 'ai',
+        },
+        status: `AI suggests ${EN_NAMES[result.level]} (${result.reason}).`,
+      };
+    } catch {
+      // Fallback to heuristic
+    }
+  }
   const suggestion = heuristicEnergySuggestion(symptoms);
   return {
     suggestion,

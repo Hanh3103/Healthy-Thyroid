@@ -6,7 +6,7 @@
  * AI path and only loads/stores the plan locally.
  */
 import { invoke } from '@tauri-apps/api/core';
-import { isTauri, localLoad, localRemove, localSave, tauriLoad, tauriSave } from '../../shared/platform';
+import { isTauri, localLoad, localRemove, localSave, tauriLoad, tauriSave } from '../../shared/platform.ts';
 import { normalizeDietAiReply, type DietAiRequest } from './ai.ts';
 import {
   normalizeDietData,
@@ -16,7 +16,7 @@ import {
   type DietPlan,
   type DietPreferences,
   type ThyroidFact,
-} from './model';
+} from './model.ts';
 
 const STORAGE_KEY = 'diet-advisor-v1';
 const MIGRATION_KEY = 'diet-advisor-migrated-v1';
@@ -104,8 +104,40 @@ export interface ShoppingUpdateResult {
   remove: string[];
 }
 
+export interface UpdateShoppingPayload {
+  changedMeal: NonNullable<DietAiRequest['changedMeal']>;
+  pantry: string[];
+  currentShoppingList: string[];
+  factLibrary?: unknown[];
+}
+
+export interface UpdateShoppingResponse {
+  neededIngredients: string[];
+  notes: string[];
+  foodAdvice?: Array<{ text: string; factIds: string[] }>;
+}
+
+/** Asks the desktop AI to update shopping list after a meal edit. */
+export async function updateShopping(input: UpdateShoppingPayload): Promise<UpdateShoppingResponse> {
+  if (!isTauri()) throw new Error('Shopping update is available in the desktop app.');
+  return invoke<UpdateShoppingResponse>('update_shopping', { input });
+}
+
 /** editMeal responses contain only needed ingredients, never a new meal. */
 export async function requestMealEditIngredients(input: DietAiRequest): Promise<ShoppingUpdateResult> {
+  if (isTauri() && input.changedMeal) {
+    try {
+      const res = await updateShopping({
+        changedMeal: input.changedMeal,
+        pantry: input.pantry,
+        currentShoppingList: input.currentShoppingList,
+        factLibrary: input.factLibrary,
+      });
+      return { add: res.neededIngredients, remove: [] };
+    } catch {
+      // Fallback to requestDietPlan
+    }
+  }
   const raw = await requestDietPlan(input);
   const parsed = JSON.parse(raw) as { neededIngredients?: unknown; notes?: unknown };
   const clean = (value: unknown) => Array.isArray(value)

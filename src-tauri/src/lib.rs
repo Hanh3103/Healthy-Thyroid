@@ -1,3 +1,4 @@
+pub mod ai;
 mod commands;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -12,6 +13,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            // Unified AI commands
+            ai::features::energy::suggest_energy,
+            ai::features::prioritize::prioritize_tasks,
+            ai::features::diet::generate_plan,
+            ai::features::shopping::update_shopping,
+            ai::save_ai_config,
+            ai::ai_status,
+            ai::delete_ai_key,
+            ai::test_connection,
             // Planner (tasks)
             commands::tasks::load_planner,
             commands::tasks::save_planner,

@@ -26,7 +26,12 @@ interface QuestionAnswers {
 }
 
 const props = defineProps<{ date: string }>();
-const emit = defineEmits<{ today: []; escape: []; 'show-shopping': [date: string] }>();
+const emit = defineEmits<{
+  today: [];
+  escape: [];
+  'show-shopping': [date: string];
+  'show-pantry': [];
+}>();
 
 const planner = usePlanner();
 const { checkInForm } = planner;
@@ -40,6 +45,7 @@ const {
   planStaleNote,
   consentChoice,
   wantChips,
+  pantry,
   alarming,
   planForDate,
   answersForDate,
@@ -59,6 +65,7 @@ const {
 
 const headingRef = ref<HTMLElement | null>(null);
 const adviceCol = ref<HTMLElement | null>(null);
+const questionsRef = ref<InstanceType<typeof DayPlanQuestions> | null>(null);
 const answers = ref(answersForDate(props.date));
 const editing = ref(false);
 const notice = ref('');
@@ -160,6 +167,14 @@ watch(
     answers.value = answersForDate(props.date);
     editing.value = false;
     notice.value = '';
+  },
+);
+
+/** The pantry card is canonical; refresh only that field without losing unsaved answers. */
+watch(
+  () => pantry.value.map((item) => `${item.id}:${item.name}:${item.low ? 1 : 0}`).join('|'),
+  () => {
+    answers.value = { ...answers.value, pantry: pantry.value.map((item) => item.name) };
   },
 );
 
@@ -298,6 +313,7 @@ async function submitAnswers(payload: QuestionAnswers): Promise<void> {
   if (!note || plan.value) {
     answers.value = answersForDate(props.date);
     editing.value = false;
+    questionsRef.value?.resetDirty();
   }
 }
 
@@ -325,6 +341,9 @@ async function regeneratePlan(): Promise<void> {
           {{ dateLabel }}
           <span v-if="isToday" class="chip today-chip">Today</span>
         </h2>
+        <button type="button" class="pantry-day-link" @click="emit('show-pantry')">
+          {{ pantry.length }} item{{ pantry.length === 1 ? '' : 's' }} at home
+        </button>
       </div>
       <div class="day-actions">
         <AppButton v-if="!isToday" @click="emit('today')">Show today</AppButton>
@@ -406,6 +425,7 @@ async function regeneratePlan(): Promise<void> {
 
     <DayPlanQuestions
       v-if="showForm && !generating"
+      ref="questionsRef"
       :key="`questions-${date}-${editing}`"
       :pantry="answers.pantry"
       :wants="answers.wants"
@@ -719,6 +739,24 @@ async function regeneratePlan(): Promise<void> {
 .shopping-day-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.pantry-day-link {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.pantry-day-link:hover,
+.pantry-day-link:focus-visible {
+  color: var(--accent);
 }
 
 .day-advice {

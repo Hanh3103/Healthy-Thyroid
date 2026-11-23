@@ -15,8 +15,6 @@ use tauri::{AppHandle, Runtime};
 use super::storage;
 
 const DIET_FILE: &str = "diet.json";
-const DEFAULT_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 // Response bounds (also applied to sanitized input where it makes sense).
 const MAX_NAME_LEN: usize = 80;
@@ -122,177 +120,6 @@ fn emergency_plan() -> String {
         "urgent": true
     })
     .to_string()
-}
-
-struct ProviderConfig {
-    key: String,
-    provider: String,
-    model: String,
-    endpoint: String,
-}
-
-/// Configuration is read only from app-data credentials saved in Profile.
-/// The key never crosses the invoke boundary.
-fn provider_config<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<ProviderConfig, String> {
-    let stored = super::profile::stored_credentials(app);
-    let key = stored.api_key.trim();
-    if key.is_empty() {
-        return Err("AI is not configured. Open Profile, choose a provider/model, and save your API key.".to_string());
-    }
-
-    let provider = if stored.provider.trim().is_empty() {
-        "openai".to_string()
-    } else {
-        stored.provider.trim().to_lowercase()
-    };
-    let model = if stored.model.trim().is_empty() {
-        DEFAULT_MODEL.to_string()
-    } else {
-        stored.model.trim().to_string()
-    };
-    let endpoint = if stored.endpoint.trim().is_empty() {
-        DEFAULT_ENDPOINT.to_string()
-    } else {
-        stored.endpoint.trim().to_string()
-    };
-
-    Ok(ProviderConfig {
-        key: key.to_string(),
-        provider,
-        model,
-        endpoint,
-    })
-}
-
-fn build_provider_request(
-    config: &ProviderConfig,
-    system: &str,
-    user: &str,
-    temperature: f64,
-    max_tokens: u64,
-) -> (String, Value) {
-    match config.provider.as_str() {
-        "gemini" => (
-            format!(
-                "{endpoint}/{model}:generateContent?key={key}",
-                endpoint = config.endpoint.trim_end_matches('/'),
-                model = config.model,
-                key = config.key
-            ),
-            json!({
-                "systemInstruction": { "parts": [{ "text": system }] },
-                "contents": [{ "role": "user", "parts": [{ "text": user }] }],
-                "generationConfig": { "temperature": temperature, "responseMimeType": "application/json" }
-            }),
-        ),
-        "claude" => (
-            config.endpoint.clone(),
-            json!({
-                "model": config.model,
-                "max_tokens": max_tokens,
-                "system": system,
-                "messages": [{ "role": "user", "content": user }]
-            }),
-        ),
-        "ollama" => (
-            config.endpoint.clone(),
-            json!({
-                "model": config.model,
-                "stream": false,
-                "format": "json",
-                "messages": [
-                    { "role": "system", "content": system },
-                    { "role": "user", "content": user }
-                ]
-            }),
-        ),
-        _ => (
-            config.endpoint.clone(),
-            json!({
-                "model": config.model,
-                "temperature": temperature,
-                "response_format": { "type": "json_object" },
-                "messages": [
-                    { "role": "system", "content": system },
-                    { "role": "user", "content": user }
-                ]
-            }),
-        ),
-    }
-}
-
-fn post_ai(config: &ProviderConfig, url: &str, body: &Value) -> Result<Value, String> {
-    let mut request = ureq::post(url).header("Content-Type", "application/json");
-    if config.provider == "claude" {
-        request = request
-            .header("x-api-key", config.key.as_str())
-            .header("anthropic-version", "2023-06-01");
-    } else if config.provider != "gemini" && config.provider != "ollama" {
-        let auth = format!("Bearer {}", config.key);
-        request = request.header("Authorization", auth.as_str());
-    }
-    // Keep non-2xx responses so we can show the provider's real message (e.g. a
-    // retired model) instead of a bare HTTP status code.
-    let response = request
-        .config()
-        .http_status_as_error(false)
-        .build()
-        .send_json(body)
-        .map_err(|error| format!("AI provider request failed: {error}"))?;
-    let status = response.status();
-    let text = response
-        .into_body()
-        .read_to_string()
-        .map_err(|error| format!("Could not read AI response: {error}"))?;
-    if !status.is_success() {
-        let detail = serde_json::from_str::<Value>(&text)
-            .ok()
-            .and_then(|value| {
-                value["error"]["message"]
-                    .as_str()
-                    .map(str::to_string)
-                    .or_else(|| value["message"].as_str().map(str::to_string))
-            })
-            .filter(|message| !message.is_empty())
-            .unwrap_or_else(|| text.chars().take(300).collect());
-        return Err(format!("AI provider HTTP {}: {detail}", status.as_u16()));
-    }
-    serde_json::from_str(&text)
-        .map_err(|error| format!("AI provider returned invalid JSON: {error}"))
-}
-
-fn extract_content(data: &Value, provider: &str) -> Result<String, String> {
-    let text = match provider {
-        "gemini" => data["candidates"][0]["content"]["parts"]
-            .as_array()
-            .map(|parts| {
-                parts.iter()
-                    .filter_map(|part| part["text"].as_str())
-                    .collect::<Vec<_>>()
-                    .join("")
-            })
-            .unwrap_or_default(),
-        "claude" => data["content"]
-            .as_array()
-            .map(|parts| {
-                parts.iter()
-                    .filter_map(|part| part["text"].as_str())
-                    .collect::<Vec<_>>()
-                    .join("")
-            })
-            .unwrap_or_default(),
-        "ollama" => data["message"]["content"].as_str().unwrap_or_default().to_string(),
-        _ => data["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
-    };
-
-    if text.trim().is_empty() {
-        Err("The AI provider returned an empty response.".to_string())
-    } else {
-        Ok(text)
-    }
 }
 
 fn extract_json_object(raw: &str) -> Value {
@@ -918,10 +745,8 @@ pub fn generate_diet_plan<R: tauri::Runtime>(app: tauri::AppHandle<R>, input: St
         facts = clean.fact_library,
         payload = prompt_payload
     );
-    let config = provider_config(&app)?;
-    let (url, body) = build_provider_request(&config, PLAN_SYSTEM_PROMPT, &user_prompt, 0.2, 4096);
-    let data = post_ai(&config, &url, &body)?;
-    let content = extract_content(&data, &config.provider)?;
+    let val = crate::ai::run_json(&app, PLAN_SYSTEM_PROMPT, &user_prompt, 0.2, 4096)?;
+    let content = val.to_string();
     let rules = RulesInput {
         mode: clean.mode,
         facts: clean.fact_library,
@@ -950,16 +775,14 @@ pub fn prioritize_with_ai<R: tauri::Runtime>(
     if prompt.chars().count() > MAX_INPUT_TEXT * 2 {
         return Err("Too many tasks for one AI request. Split the list and try again.".to_string());
     }
-    let config = provider_config(&app)?;
-    let (url, body) = build_provider_request(
-        &config,
+    let val = crate::ai::run_json(
+        &app,
         "You prioritize tasks. Return only the requested JSON with no extra text.",
         prompt,
         0.2,
         2048,
-    );
-    let data = post_ai(&config, &url, &body)?;
-    extract_content(&data, &config.provider)
+    )?;
+    Ok(val.to_string())
 }
 
 #[cfg(test)]

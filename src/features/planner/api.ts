@@ -3,14 +3,14 @@
  * Tauri: `planner.json` via load/save commands. Browser: localStorage.
  * Legacy browser state is migrated to Tauri storage once, then removed.
  */
-import { isTauri, tauriInvoke, tauriLoad, tauriSave, localLoad, localSave, localRemove } from '../../shared/platform';
+import { isTauri, tauriInvoke, tauriLoad, tauriSave, localLoad, localSave, localRemove } from '../../shared/platform.ts';
 import {
   STORAGE_KEY,
   URGENCY_MIGRATION_KEY,
   normalizeState,
   seedState,
   type AppState,
-} from './model';
+} from './model.ts';
 
 /** Applies the legacy urgency renumbering to old persisted tasks. */
 function applyUrgencyMigration(state: AppState): void {
@@ -47,6 +47,43 @@ export async function loadPlanner(): Promise<AppState> {
   return legacy;
 }
 
+export interface PrioritizeTaskInput {
+  id: string;
+  title: string;
+  due?: string | null;
+}
+
+export interface PrioritizeTasksPayload {
+  energy: number;
+  today: string;
+  weekday: string;
+  tasks: PrioritizeTaskInput[];
+}
+
+export interface PrioritizeEstimateOutput {
+  id: string;
+  minutes: number;
+  energy: number;
+  confidence: 'low' | 'medium' | 'high';
+  reason: string;
+  subtasks?: Array<{ title: string; minutes: number; energy: number }>;
+  firstStep?: { title: string; minutes: number; energy: number };
+}
+
+export interface PrioritizeTasksResult {
+  tasks: PrioritizeEstimateOutput[];
+}
+
+/**
+ * Asks the configured desktop AI to prioritize and estimate tasks using typed input.
+ */
+export async function prioritizeTasks(input: PrioritizeTasksPayload): Promise<PrioritizeTasksResult> {
+  if (!isTauri()) {
+    throw new Error('AI prioritization is available only in the desktop app.');
+  }
+  return tauriInvoke<PrioritizeTasksResult>('prioritize_tasks', { input });
+}
+
 /**
  * Asks the configured desktop AI to estimate and rank today's tasks.
  * The API key stays in Rust; only the prompt crosses the invoke boundary.
@@ -56,6 +93,20 @@ export async function requestAiPrioritization(prompt: string): Promise<string> {
     throw new Error('AI prioritization is available only in the desktop app.');
   }
   return tauriInvoke<string>('prioritize_with_ai', { prompt });
+}
+
+export interface SuggestEnergyResult {
+  level: 1 | 2 | 3;
+  reason: string;
+  source: string;
+}
+
+/** Asks the configured desktop AI to suggest daily energy level based on symptoms. */
+export async function suggestEnergy(symptoms: string): Promise<SuggestEnergyResult> {
+  if (!isTauri()) {
+    throw new Error('AI energy suggestion is available only in the desktop app.');
+  }
+  return tauriInvoke<SuggestEnergyResult>('suggest_energy', { input: { symptoms } });
 }
 
 /** Persists planner state. */

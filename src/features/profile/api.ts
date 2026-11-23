@@ -143,6 +143,19 @@ export async function saveAiCredentials(input: SaveAiCredentialsInput): Promise<
   return JSON.parse(raw) as import('./model.ts').AiCredentialsStatus;
 }
 
+export async function deleteAiKey(): Promise<import('./model.ts').AiCredentialsStatus> {
+  if (!isTauri()) throw new Error('AI key can be deleted only in the desktop app.');
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('delete_ai_key');
+  return getAiCredentialsStatus();
+}
+
+export async function testAiConnection(): Promise<string> {
+  if (!isTauri()) throw new Error('Connection test is available only in the desktop app.');
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string>('test_connection');
+}
+
 /** Loads the Profile-owned diet settings used by the Diet Advisor. */
 export async function loadDietSettings(): Promise<DietSettings> {
   return (await loadProfileData()).diet;

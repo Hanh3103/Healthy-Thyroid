@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import AppButton from '../../shared/ui/AppButton.vue';
+import {
+  PANTRY_SEPARATOR,
+  addPantryNames,
+  cleanPantryItem,
+} from './pantryInput';
 import type { ConsentChoice, PlanBasis, PlanScope } from './model';
 
 type Appetite = NonNullable<PlanBasis['appetite']>;
@@ -42,26 +47,80 @@ const savePantry = ref(true);
 const selectedScope = ref<PlanScope>(props.scope);
 const appetite = ref<Appetite | undefined>(undefined);
 
+/** True once this form has local pantry edits not yet saved to the card. */
+const pantryDirty = ref(false);
+
 function addPantry(value: string): void {
-  const clean = value.replace(/\s+/g, ' ').trim().slice(0, 80);
-  if (!clean || pantryItems.value.some((item) => item.toLowerCase() === clean.toLowerCase())) return;
+  const clean = cleanPantryItem(value);
+  if (!clean) return;
+  if (pantryItems.value.some((item) => item.toLowerCase() === clean.toLowerCase())) return;
   pantryItems.value = [...pantryItems.value, clean];
+  pantryDirty.value = true;
+}
+
+/** Splits typed or pasted text into chips; duplicates are ignored. */
+function addPantryText(value: string): void {
+  const next = addPantryNames(pantryItems.value, value);
+  if (next.length !== pantryItems.value.length) pantryDirty.value = true;
+  pantryItems.value = next;
 }
 
 function addPantryDraft(): void {
-  pantryDraft.value.split(',').forEach(addPantry);
+  if (!pantryDraft.value.trim()) return;
+  addPantryText(pantryDraft.value);
   pantryDraft.value = '';
 }
 
+/** The card is the permanent list; refresh this draft until the user edits it. */
+watch(
+  () => props.pantry.join('\u0000'),
+  () => {
+    if (!pantryDirty.value) pantryItems.value = [...props.pantry];
+  },
+);
+
 function onPantryKeydown(event: KeyboardEvent): void {
-  if (event.key !== ',') return;
+  if (event.key === ',') {
+    event.preventDefault();
+    addPantryDraft();
+    return;
+  }
+  if (event.key === 'Backspace' && !pantryDraft.value && pantryItems.value.length) {
+    event.preventDefault();
+    pantryItems.value = pantryItems.value.slice(0, -1);
+    pantryDirty.value = true;
+  }
+}
+
+function onPantryPaste(event: ClipboardEvent): void {
+  const text = event.clipboardData?.getData('text') ?? '';
+  if (!PANTRY_SEPARATOR.test(text)) return;
   event.preventDefault();
-  addPantryDraft();
+  addPantryText(text);
+  pantryDraft.value = '';
 }
 
 function removePantry(index: number): void {
   pantryItems.value = pantryItems.value.filter((_, position) => position !== index);
+  pantryDirty.value = true;
 }
+
+/** After a successful generate the draft is settled; later card edits should repopulate it. */
+function resetDirty(): void {
+  pantryDirty.value = false;
+}
+
+defineExpose({
+  pantryItems,
+  pantryDirty,
+  resetDirty,
+  addPantry,
+  addPantryText,
+  addPantryDraft,
+  onPantryKeydown,
+  onPantryPaste,
+  removePantry,
+});
 
 function parseWants(value: string): string[] {
   const result: string[] = [];
@@ -117,24 +176,29 @@ function submit(skip: boolean): void {
 
     <div class="question-block pantry-block">
       <label class="question-label" :for="`day-pantry-${fieldId}`">What do you have at home?</label>
-      <div v-if="pantryItems.length" class="answer-chips" aria-label="Foods at home">
+      <div class="pantry-input-wrap">
+        <input
+          :id="`day-pantry-${fieldId}`"
+          v-model="pantryDraft"
+          class="answer-input pantry-input"
+          type="text"
+          enterkeyhint="done"
+          autocomplete="off"
+          placeholder="Type an item and press Enter or comma"
+          @keydown.enter.prevent="addPantryDraft()"
+          @keydown="onPantryKeydown"
+          @paste="onPantryPaste"
+          @blur="addPantryDraft()"
+        />
+        <p class="field-hint" :id="`day-pantry-hint-${fieldId}`">Press Enter or comma to add</p>
+      </div>
+      <div v-if="pantryItems.length" class="answer-chips pantry-chips" aria-label="Foods at home">
         <span v-for="(item, index) in pantryItems" :key="`${item}-${index}`" class="answer-chip">
           {{ item }}
           <button type="button" class="chip-remove" :aria-label="`Remove ${item}`" @click="removePantry(index)">×</button>
         </span>
       </div>
-      <div class="answer-input-row">
-        <input
-          :id="`day-pantry-${fieldId}`"
-          v-model="pantryDraft"
-          class="answer-input"
-          type="text"
-          placeholder="e.g. oats, lentils, frozen veg"
-          @keydown.enter.prevent="addPantryDraft()"
-          @keydown="onPantryKeydown"
-        />
-        <AppButton @click="addPantryDraft()">Add</AppButton>
-      </div>
+      <p class="pantry-count">{{ pantryItems.length }} {{ pantryItems.length === 1 ? 'item' : 'items' }} at home</p>
       <div class="quick-chips" aria-label="Quick-add foods at home">
         <button v-for="chip in PANTRY_CHIPS" :key="chip" type="button" class="quick-chip" @click="addPantry(chip)">+ {{ chip }}</button>
       </div>
@@ -248,7 +312,6 @@ function submit(skip: boolean): void {
 .consent-actions,
 .question-actions,
 .quick-chips,
-.answer-input-row,
 .choice-row {
   display: flex;
   align-items: center;
@@ -283,11 +346,24 @@ function submit(skip: boolean): void {
   font-weight: var(--font-weight-medium);
 }
 
+.pantry-input-wrap {
+  display: block;
+}
+
+.field-hint,
+.pantry-count {
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .answer-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-top: 8px;
+  margin-bottom: 0;
 }
 
 .answer-chip {
@@ -324,8 +400,9 @@ function submit(skip: boolean): void {
   font-size: 12px;
 }
 
-.answer-input {
-  flex: 1 1 220px;
+.pantry-input {
+  display: block;
+  width: 100%;
   min-width: 0;
 }
 
@@ -357,6 +434,10 @@ function submit(skip: boolean): void {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--surface);
+}
+
+.pantry-count {
+  margin-bottom: 6px;
 }
 
 .save-pantry {

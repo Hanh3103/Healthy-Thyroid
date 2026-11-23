@@ -21,8 +21,10 @@ import {
   markBought,
   markMeal,
   applyMealShoppingDelta,
+  availablePantryNames,
   combineQuantities,
   isBasicShoppingItem,
+  pantryNames,
   normalizeDietData,
   parseRangePlan,
   planningWeekFor,
@@ -96,7 +98,12 @@ const shoppingMerge = ref<ShoppingMerge | null>(null);
 const shoppingFilter = ref<ShoppingFilter>('all');
 const shoppingUpdateStatus = ref<'idle' | 'updating' | 'done' | 'error'>('idle');
 const shoppingUpdateError = ref('');
-const lastBought = ref<{ itemId: string; pantryItemId?: string; previousStatus: 'open' | 'bought' } | null>(null);
+const lastBought = ref<{
+  itemId: string;
+  pantryItemId?: string;
+  previousStatus: 'open' | 'bought';
+  previousPantry?: PantryItem;
+} | null>(null);
 interface MealEditBatch {
   date: string;
   oldMeal: { idea: string; ingredients: string[] };
@@ -132,6 +139,8 @@ const contexts = computed(() => buildContextsForDates(
 const plan = computed<RangePlan | null>(() => data.value.plans[activeRange.value]);
 const wants = computed(() => data.value.wants[activeRange.value]);
 const pantry = computed(() => data.value.pantry);
+const pantryNamesView = computed(() => pantryNames(data.value.pantry));
+const availablePantry = computed(() => availablePantryNames(data.value.pantry));
 const shopping = computed(() => sortShoppingItems(data.value.shopping));
 const log = computed(() => data.value.log);
 const dayPlans = computed(() => data.value.dayPlans);
@@ -189,21 +198,38 @@ function cleanNames(value: string[] | undefined, max: number): string[] {
   return result.slice(0, max);
 }
 
+/**
+ * Pantry names for a plan. Canonical items marked running low are treated as
+ * missing even when an older per-plan answer still lists them.
+ */
+function availableDraftPantry(drafts?: string[]): string[] {
+  // An explicitly empty draft means "use no pantry for this one plan".
+  const names = drafts === undefined ? pantryNamesView.value : cleanNames(drafts, 40);
+  const low = new Set(data.value.pantry
+    .filter((item) => item.low)
+    .map((item) => item.name.toLowerCase()));
+  return names.filter((name) => !low.has(name.toLowerCase()));
+}
+
 function basisFor(range: DietRange): PlanBasis {
   return {
-    pantry: data.value.pantry.map((item) => item.name),
+    pantry: availablePantry.value,
     wants: [...data.value.wants[range]],
   };
 }
 
-/** Prefills the questions from the last answers, then the saved plan, then settings. */
+/**
+ * Prefills the questions from last answers or the saved plan, but always shows
+ * the canonical pantry card list. Per-plan pantry drafts stay in `basedOn`.
+ */
 function answersForDate(date: string): DayPlanAnswers {
   const saved = data.value.dayAnswers[date];
-  if (saved) return saved;
+  if (saved) return { ...saved, pantry: pantryNamesView.value };
   const stored = data.value.dayPlans[date];
   if (stored?.basedOn) {
     return {
       ...stored.basedOn,
+      pantry: pantryNamesView.value,
       scope: stored.range === 'week' ? 'week' : 'day',
       savePantry: true,
       updatedAt: stored.generatedAt,
@@ -211,6 +237,7 @@ function answersForDate(date: string): DayPlanAnswers {
   }
   return {
     ...basisFor(rangeForDate(date)),
+    pantry: pantryNamesView.value,
     scope: 'day',
     savePantry: true,
     updatedAt: 0,
@@ -245,7 +272,9 @@ async function applyPantryDraft(value: string[]): Promise<void> {
     id: makeId(),
     name,
     addedAt: Date.now(),
+    source: 'manual' as const,
   });
+  syncShoppingWithPantry();
   await persist();
 }
 
@@ -263,7 +292,7 @@ function buildRequest(range: DietRange): RangeRequest {
     dates,
     contexts: rangeContexts,
     wants: [...data.value.wants[range]],
-    pantry: remainingPantry(data.value.pantry.map((item) => item.name), data.value.log, dates),
+    pantry: remainingPantry(availablePantry.value, data.value.log, dates),
     preferences: preferences.value,
     log: [...data.value.log],
     alarmingSymptoms: alarming.value,
@@ -279,11 +308,7 @@ async function persist(): Promise<void> {
 }
 
 function pantryFor(dates: string[], basis?: PlanBasis): string[] {
-  return remainingPantry(
-    basis?.pantry ?? data.value.pantry.map((item) => item.name),
-    data.value.log,
-    dates,
-  );
+  return remainingPantry(availableDraftPantry(basis?.pantry), data.value.log, dates);
 }
 
 /** Eaten, skipped and edited meals are immutable across generation. */
@@ -405,14 +430,14 @@ function buildRequestForDates(dates: string[], range: DietRange, answers?: PlanB
     todayContext.value,
   );
   const wanted = answers?.wants ?? (range === 'week' ? data.value.wants.week : data.value.wants[range]);
-  const pantryNames = answers?.pantry ?? data.value.pantry.map((item) => item.name);
+  const pantryNames = availableDraftPantry(answers?.pantry);
   return {
     range,
     dates: contexts.map((context) => context.date),
     contexts,
     wants: cleanNames(wanted, 16),
     pantry: remainingPantry(
-      cleanNames(pantryNames, 40),
+      pantryNames,
       data.value.log,
       contexts.map((context) => context.date),
     ),
@@ -675,7 +700,7 @@ async function init(): Promise<void> {
   const todayDate = todayContext.value.date;
   const previous = data.value.lastPlan;
   if (!data.value.dayPlans[todayDate] && previous && previous.context.date === todayDate) {
-    const legacy = legacyRangePlan(previous, data.value.pantry.map((item) => item.name));
+    const legacy = legacyRangePlan(previous, availablePantry.value);
     storeRangePlanInDays(data.value, legacy, 'today');
   }
 
@@ -771,23 +796,130 @@ async function setWants(range: DietRange, items: string[]): Promise<void> {
   statusText.value = 'Saved. Use Regenerate to apply what you want to eat.';
 }
 
-async function addPantry(name: string): Promise<void> {
-  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 80);
-  if (!clean || pantry.value.some((item) => item.name.toLowerCase() === clean.toLowerCase())) return;
-  const item: PantryItem = { id: makeId(), name: clean, addedAt: Date.now() };
-  data.value.pantry = [...data.value.pantry, item];
+/** Adds several pasted/typed names to the one canonical pantry list. */
+async function addPantryMany(values: string[]): Promise<void> {
+  const seen = new Set(data.value.pantry.map((item) => item.name.toLowerCase()));
+  const now = Date.now();
+  const added: string[] = [];
+  values.forEach((value) => {
+    const clean = value.replace(/\s+/g, ' ').trim().slice(0, 80);
+    const key = clean.toLowerCase();
+    if (!clean || isBasicShoppingItem(clean) || seen.has(key)) return;
+    seen.add(key);
+    data.value.pantry.push({
+      id: makeId(),
+      name: clean,
+      addedAt: now,
+      source: 'manual',
+    });
+    added.push(clean);
+  });
+  if (!added.length) return;
+  syncShoppingWithPantry();
   await persist();
-  statusText.value = `${clean} added to your pantry.`;
+  statusText.value = `${added.join(', ')} added to your pantry.`;
+}
+
+async function addPantry(name: string): Promise<void> {
+  await addPantryMany([name]);
 }
 
 async function removePantry(id: string): Promise<void> {
   data.value.pantry = data.value.pantry.filter((item) => item.id !== id);
+  syncShoppingWithPantry();
   await persist();
+}
+
+/** Running low stays at home but is treated as missing for planning. */
+async function setPantryLow(id: string, low: boolean): Promise<void> {
+  const item = data.value.pantry.find((entry) => entry.id === id);
+  if (!item || item.low === low) return;
+  item.low = low || undefined;
+  syncShoppingWithPantry();
+  await persist();
+}
+
+async function clearPantry(): Promise<void> {
+  if (!data.value.pantry.length) return;
+  data.value.pantry = [];
+  syncShoppingWithPantry();
+  await persist();
+  statusText.value = 'Pantry cleared.';
+}
+
+/** Clears diet data, including the pantry, from Profile > Delete my data. */
+async function clearAllDietData(): Promise<void> {
+  data.value = normalizeDietData({
+    preferences: data.value.preferences,
+    consentChoice: data.value.consentChoice,
+    consentGiven: data.value.consentGiven,
+  }, facts);
+  // Clear transient state so a stale undo/merge cannot resurrect deleted data.
+  lastBought.value = null;
+  shoppingMerge.value = null;
+  pendingGeneration.value = null;
+  lastFailedAiRequest = null;
+  generationNote.value = '';
+  planStaleNote.value = '';
+  await persist();
+  statusText.value = 'Diet data, including your pantry, was deleted.';
 }
 
 function setShopping(items: ShoppingItem[]): void {
   data.value.shopping = sortShoppingItems(items);
   rebuildRangePlans(data.value);
+}
+
+/**
+ * Keeps the shopping list aligned with the pantry card: available items drop
+ * off, removed items come back, and running-low items stay visible as missing.
+ */
+function syncShoppingWithPantry(): void {
+  const now = Date.now();
+  const pantryByKey = new Map(data.value.pantry.map((item) => [item.name.toLowerCase(), item] as const));
+  const openKeys = new Set<string>();
+  const next = data.value.shopping.map((item) => {
+    const key = item.name.toLowerCase();
+    const stored = pantryByKey.get(key);
+    if (item.status !== 'open') return item;
+    if (item.runningLow) {
+      if (stored?.low && !isBasicShoppingItem(item.name)) {
+        openKeys.add(key);
+        return { ...item, updatedAt: now };
+      }
+      return { ...item, status: 'removed' as const, runningLow: undefined, updatedAt: now };
+    }
+    if (stored && !stored.low && !isBasicShoppingItem(item.name)) {
+      return { ...item, status: 'removed' as const, fromPantry: true, updatedAt: now };
+    }
+    openKeys.add(key);
+    return item;
+  });
+
+  data.value.pantry.filter((item) => item.low && !openKeys.has(item.name.toLowerCase()))
+    .forEach((item) => {
+      if (isBasicShoppingItem(item.name)) return;
+      next.push({
+        id: makeId(),
+        name: item.name,
+        source: 'user',
+        status: 'open',
+        inPlan: false,
+        forDays: [],
+        runningLow: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+  data.value.shopping.forEach((item) => {
+    if (item.status !== 'removed' || !item.fromPantry || pantryByKey.has(item.name.toLowerCase())) return;
+    const restored = next.find((entry) => entry.id === item.id);
+    if (!restored) return;
+    Object.assign(restored, { status: 'open', fromPantry: undefined, updatedAt: now });
+  });
+
+  setShopping(next);
 }
 
 function isNoLongerNeeded(item: ShoppingItem): boolean {
@@ -815,17 +947,19 @@ async function toggleShopping(id: string, bought: boolean): Promise<void> {
 async function buyShopping(id: string): Promise<void> {
   const item = data.value.shopping.find((entry) => entry.id === id);
   if (!item) return;
-  const hadPantryItem = data.value.pantry.some((entry) => entry.name.toLowerCase() === item.name.toLowerCase());
+  const previousPantry = data.value.pantry
+    .find((entry) => entry.name.toLowerCase() === item.name.toLowerCase());
   const result = markBought(data.value.pantry, data.value.shopping, id);
   data.value.pantry = result.pantry;
   setShopping(result.shopping);
-  const addedPantryItem = hadPantryItem
+  const addedPantryItem = previousPantry
     ? undefined
     : result.pantry.find((entry) => entry.name.toLowerCase() === item.name.toLowerCase());
   lastBought.value = {
     itemId: id,
     pantryItemId: addedPantryItem?.id,
     previousStatus: item.status === 'bought' ? 'bought' : 'open',
+    previousPantry: previousPantry ? { ...previousPantry } : undefined,
   };
   statusText.value = `${item.name} moved to your pantry.`;
   await persist();
@@ -838,6 +972,9 @@ async function undoBought(): Promise<void> {
     item.id === purchase.itemId ? { ...item, status: purchase.previousStatus, updatedAt: Date.now() } : item));
   if (purchase.pantryItemId) {
     data.value.pantry = data.value.pantry.filter((item) => item.id !== purchase.pantryItemId);
+  } else if (purchase.previousPantry) {
+    const restore = purchase.previousPantry;
+    data.value.pantry = data.value.pantry.map((item) => item.id === restore.id ? { ...restore } : item);
   }
   lastBought.value = null;
   statusText.value = 'Move to pantry undone.';
@@ -1228,6 +1365,8 @@ export function useDiet() {
     plan,
     wants,
     pantry,
+    pantryNames: pantryNamesView,
+    availablePantry,
     shopping,
     log,
     dayPlans,
@@ -1276,7 +1415,11 @@ export function useDiet() {
     clearMealsForDates,
     setWants,
     addPantry,
+    addPantryMany,
     removePantry,
+    setPantryLow,
+    clearPantry,
+    clearAllDietData,
     shoppingMerge,
     shoppingFilter,
     setShoppingFilter,

@@ -95,10 +95,17 @@ export interface DietPlan {
   generatedAt: number;
 }
 
+export type PantrySource = 'manual' | 'shopping';
+
 export interface PantryItem {
   id: string;
   name: string;
   addedAt: number;
+  /** Running low: still at home, but treated as missing for planning. */
+  low?: boolean;
+  source?: PantrySource;
+  /** Set when the item was ticked as bought on the shopping list. */
+  boughtAt?: number;
 }
 
 export interface ShoppingItem {
@@ -111,8 +118,22 @@ export interface ShoppingItem {
   status: 'open' | 'bought' | 'removed';
   inPlan: boolean;
   isNew?: boolean;
+  /** Added or hidden because a matching pantry item was added/removed. */
+  fromPantry?: boolean;
+  /** Added because the matching pantry item was marked running low. */
+  runningLow?: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+/** All saved pantry names, including items that are running low. */
+export function pantryNames(pantry: PantryItem[]): string[] {
+  return pantry.map((item) => item.name);
+}
+
+/** Names the AI and shopping list may treat as available at home. */
+export function availablePantryNames(pantry: PantryItem[]): string[] {
+  return pantry.filter((item) => item.low !== true).map((item) => item.name);
 }
 
 export interface ShoppingMerge {
@@ -517,12 +538,17 @@ function normalizePantry(value: unknown): PantryItem[] {
   if (!Array.isArray(value)) return [];
   const byName = new Map<string, PantryItem>();
   value.forEach((entry) => {
-    const name = cleanText(isRecord(entry) ? entry.name : entry, 80);
+    const rec = isRecord(entry) ? entry : {};
+    const name = cleanText(rec.name ?? entry, 80);
     if (!name || byName.has(lower(name))) return;
+    const boughtAt = clampNumber(rec.boughtAt, 0, 0, Number.MAX_SAFE_INTEGER);
     byName.set(lower(name), {
-      id: cleanText(isRecord(entry) ? entry.id : '', 60) || newId(),
+      id: cleanText(rec.id, 60) || newId(),
       name,
-      addedAt: clampNumber(isRecord(entry) ? entry.addedAt : 0, Date.now(), 0, Number.MAX_SAFE_INTEGER),
+      addedAt: clampNumber(rec.addedAt, Date.now(), 0, Number.MAX_SAFE_INTEGER),
+      low: rec.low === true || undefined,
+      source: oneOf(rec.source, ['manual', 'shopping'] as const, 'manual'),
+      boughtAt: boughtAt || undefined,
     });
   });
   return [...byName.values()].slice(0, 200);
@@ -619,6 +645,8 @@ function mergeShoppingEntries(current: ShoppingItem | undefined, next: ShoppingI
     // A line is active when any of its days still needs it.
     inPlan: current.inPlan || next.inPlan,
     isNew: current.isNew || next.isNew ? true : undefined,
+    fromPantry: current.fromPantry || next.fromPantry ? true : undefined,
+    runningLow: current.runningLow || next.runningLow ? true : undefined,
     createdAt: Math.min(current.createdAt, next.createdAt),
     updatedAt: Math.max(current.updatedAt, next.updatedAt),
   };
@@ -663,6 +691,8 @@ function normalizeShopping(value: unknown): ShoppingItem[] {
       status,
       inPlan: rec.inPlan !== false,
       isNew: rec.isNew === true ? true : undefined,
+      fromPantry: rec.fromPantry === true ? true : undefined,
+      runningLow: rec.runningLow === true ? true : undefined,
       createdAt: clampNumber(rec.createdAt ?? rec.addedAt, now, 0, Number.MAX_SAFE_INTEGER),
       updatedAt: clampNumber(rec.updatedAt ?? rec.createdAt ?? rec.addedAt, now, 0, Number.MAX_SAFE_INTEGER),
     };
@@ -1612,10 +1642,19 @@ export function markBought(
 ): { pantry: PantryItem[]; shopping: ShoppingItem[] } {
   const item = shopping.find((entry) => entry.id === itemId);
   if (!item) return { pantry, shopping };
-  const nextPantry = pantry.some((entry) => lower(entry.name) === lower(item.name))
-    ? pantry
-    : [...pantry, { id: newId(), name: item.name, addedAt: Date.now() }];
   const now = Date.now();
+  const existing = pantry.find((entry) => lower(entry.name) === lower(item.name));
+  const nextPantry = existing
+    ? pantry.map((entry) => entry.id === existing.id
+      ? { ...entry, source: 'shopping' as const, boughtAt: entry.boughtAt ?? now }
+      : entry)
+    : [...pantry, {
+      id: newId(),
+      name: item.name,
+      addedAt: now,
+      source: 'shopping' as const,
+      boughtAt: now,
+    }];
   return {
     pantry: nextPantry,
     shopping: shopping.map((entry) =>

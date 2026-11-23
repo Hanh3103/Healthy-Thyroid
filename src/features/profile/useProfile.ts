@@ -19,12 +19,14 @@ import {
 import { loadSettings, saveSettings as persistSettings } from './settings';
 import { dietSettings } from './settings';
 import type { DietSettings } from './dietSettings';
-import { getAiCredentialsStatus, saveAiCredentials } from './api';
+import { deleteAiKey, getAiCredentialsStatus, saveAiCredentials, testAiConnection } from './api';
 
 const status = ref('');
 const settingsStatus = ref('');
 const draft = ref<AIConfig>(emptyConfig());
 const apiKeyInput = ref('');
+const replacingKey = ref(false);
+const testingConnection = ref(false);
 const credentials = ref<AiCredentialsStatus | null>(null);
 const settingsDraft = ref<DietSettings>({ ...dietSettings.value });
 let initialised = false;
@@ -77,8 +79,45 @@ export function useProfile() {
 
   function reset(): void {
     apiKeyInput.value = '';
+    replacingKey.value = false;
     if (credentials.value) applyStatus(credentials.value);
     status.value = 'AI settings reset to saved values.';
+  }
+
+  function startReplaceKey(): void {
+    replacingKey.value = true;
+    apiKeyInput.value = '';
+  }
+
+  function cancelReplaceKey(): void {
+    replacingKey.value = false;
+    apiKeyInput.value = '';
+  }
+
+  async function deleteKey(): Promise<void> {
+    if (!isTauri()) return;
+    const next = await deleteAiKey();
+    applyStatus(next);
+    replacingKey.value = false;
+    apiKeyInput.value = '';
+    status.value = 'API key removed from OS keychain.';
+  }
+
+  async function testConnection(): Promise<void> {
+    if (!isTauri()) {
+      status.value = 'Connection test is available only in the desktop app.';
+      return;
+    }
+    testingConnection.value = true;
+    status.value = 'Testing connection to AI provider...';
+    try {
+      const msg = await testAiConnection();
+      status.value = msg;
+    } catch (e) {
+      status.value = `Connection test failed: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      testingConnection.value = false;
+    }
   }
 
   async function save(): Promise<void> {
@@ -89,6 +128,7 @@ export function useProfile() {
     const next = await saveAiCredentials({ ...draft.value, apiKey: apiKeyInput.value });
     applyStatus(next);
     apiKeyInput.value = '';
+    replacingKey.value = false;
     status.value = next.configured
       ? `AI configuration saved${next.apiKeyMasked ? ` (${next.apiKeyMasked})` : ''}.`
       : 'AI configuration saved, but an API key is still required.';
@@ -126,6 +166,12 @@ export function useProfile() {
     selectProvider,
     reset,
     save,
+    startReplaceKey,
+    cancelReplaceKey,
+    deleteKey,
+    testConnection,
+    replacingKey: computed(() => replacingKey.value),
+    testingConnection: computed(() => testingConnection.value),
     resetDietSettings,
     saveDiet,
     init,

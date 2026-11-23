@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue';
 import DayMeals from '../features/diet/DayMeals.vue';
 import DietCalendar from '../features/diet/DietCalendar.vue';
+import PantryCard from '../features/diet/PantryCard.vue';
 import ShoppingList from '../features/diet/ShoppingList.vue';
 import { useDiet } from '../features/diet/useDiet';
 import { keyOf } from '../shared/utils';
@@ -40,6 +41,15 @@ function showShoppingForDate(date: string): void {
   });
 }
 
+function showPantry(): void {
+  void nextTick(() => {
+    document.getElementById('pantry-card')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+    });
+  });
+}
+
 /** Dev-only: today plus the following seven dates. */
 async function resetMealTestData(): Promise<void> {
   const start = new Date();
@@ -68,8 +78,12 @@ onMounted(() => { void init(); });
       @today="showToday"
       @escape="returnToCalendar"
       @show-shopping="showShoppingForDate"
+      @show-pantry="showPantry"
     />
-    <ShoppingList />
+    <div class="diet-list-cards">
+      <PantryCard />
+      <ShoppingList />
+    </div>
 
     <div v-if="isDev" class="dev-reset">
       <AppButton size="sm" @click="resetMealTestData">Reset meal test data</AppButton>
@@ -79,6 +93,19 @@ onMounted(() => { void init(); });
 </template>
 
 <style scoped>
+.diet-list-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--spacing-20);
+}
+
+@media (max-width: 900px) {
+  .diet-list-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .dev-reset {
   display: flex;
   align-items: center;
