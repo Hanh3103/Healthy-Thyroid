@@ -3,6 +3,7 @@
  * No Vue, no persistence, no DOM.
  */
 import { keyOf, daysUntil } from '../../shared/utils/index.ts';
+import { symptomsFromNote } from './checkin.ts';
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
@@ -26,6 +27,8 @@ export interface Task {
   reason: string;
   estimateSource?: 'ai' | 'heuristic';
   fit?: 'fits' | 'stretch' | 'too_hard';
+  /** Set when prioritization moved the task back to Dumps for energy reasons. */
+  movedFromToday?: boolean;
   confidence?: 'low' | 'medium' | 'high';
   firstStep?: { title: string; minutes: number };
   subtasks?: { title: string; minutes: number; energy: EnergyLevel }[];
@@ -56,9 +59,19 @@ export interface Plan {
   at: number;
 }
 
+export type SymptomSeverity = 'mild' | 'moderate' | 'severe';
+
+export interface SymptomEntry {
+  /** Short, controlled symptom name. The free check-in note is never shared. */
+  name: string;
+  severity: SymptomSeverity;
+}
+
 export interface DailyCheckIn {
   /** Symptoms the user entered when saving or editing the day. */
   symptoms: string;
+  /** Structured, shareable symptom names; derived from the note on legacy data. */
+  symptomEntries?: SymptomEntry[];
   level: EnergyLevel;
   /** Level the AI suggested, kept for reference when editing. */
   suggested: EnergyLevel | null;
@@ -172,10 +185,29 @@ function isEnergyLevel(value: unknown): value is EnergyLevel {
   return value === 1 || value === 2 || value === 3;
 }
 
+function normalizeSymptomEntries(value: unknown): SymptomEntry[] | null {
+  if (!Array.isArray(value)) return null;
+  const entries: SymptomEntry[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Partial<SymptomEntry>;
+    const name = typeof raw.name === 'string' ? raw.name.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    if (!name) continue;
+    const severity = raw.severity === 'severe' || raw.severity === 'moderate'
+      ? raw.severity
+      : 'mild';
+    if (!entries.some((entry) => entry.name.toLowerCase() === name.toLowerCase())) {
+      entries.push({ name, severity });
+    }
+  }
+  return entries.slice(0, 8);
+}
+
 /** Keeps valid check-ins and backfills legacy saved energy days. */
 export function normalizeCheckIns(
   raw: unknown,
   history: Record<string, EnergyLevel>,
+  today = keyOf(new Date()),
 ): Record<string, DailyCheckIn> {
   const result: Record<string, DailyCheckIn> = {};
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -186,8 +218,10 @@ export function normalizeCheckIns(
       const source = item.source === 'ai' || item.source === 'manual'
         ? item.source
         : 'legacy';
+      const note = typeof item.symptoms === 'string' ? item.symptoms.slice(0, 1000) : '';
       result[key] = {
-        symptoms: typeof item.symptoms === 'string' ? item.symptoms.slice(0, 1000) : '',
+        symptoms: note,
+        symptomEntries: normalizeSymptomEntries(item.symptomEntries) ?? symptomsFromNote(note),
         level: item.level,
         suggested: isEnergyLevel(item.suggested) ? item.suggested : null,
         aiReason: typeof item.aiReason === 'string' ? item.aiReason.slice(0, 200) : null,
@@ -198,6 +232,11 @@ export function normalizeCheckIns(
   }
 
   for (const [key, level] of Object.entries(history)) {
+    // A saved energy value is not the same as an answered check-in. Opening the
+    // app sets energyDay to today, so backfilling today would lock the form
+    // before the user has answered it ("Medium" on first open). Legacy
+    // backfill remains available for past days only.
+    if (key >= today) continue;
     result[key] ??= { symptoms: '', level, suggested: null, aiReason: null, source: 'legacy', at: 0 };
   }
   return result;
@@ -288,12 +327,19 @@ export function toggleTaskDone(task: Task): void {
 export function cycleTaskUrgency(task: Task): UrgencyLevel {
   task.imp = ((task.imp % 4) + 1) as UrgencyLevel;
   task.locked = true;
+  if (task.imp === 4) {
+    task.movedFromToday = false;
+    task.fit = undefined;
+  }
   return task.imp;
 }
 
 export function moveTaskToToday(task: Task): void {
   task.imp = 4;
   task.locked = true;
+  task.movedFromToday = false;
+  // Clear the stale estimate so the energy-aware Today list shows it again.
+  task.fit = undefined;
 }
 
 export function removeTask(tasks: Task[], id: string): void {
@@ -335,17 +381,19 @@ export function orderNow(list: Task[], plan: Plan | null, energy: number, now: D
   return list.sort((a, b) => score(b, now) - score(a, now));
 }
 
+/** True when a task's AI/heuristic energy fit works at the given energy level. */
+export function fitsEnergy(fit: Task['fit'], energy: EnergyLevel): boolean {
+  if (!fit || fit === 'fits') return true;
+  if (fit === 'stretch') return energy >= 2;
+  return energy === 3;
+}
+
 /**
  * Today's list is energy-aware: unestimated work stays visible, estimated
  * "too hard" work is parked until the user records a higher-energy day.
  */
 export function tasksForEnergy(tasks: Task[], energy: EnergyLevel): Task[] {
-  return tasks.filter((task) => {
-    if (!task.fit) return true;
-    if (task.fit === 'fits') return true;
-    if (task.fit === 'stretch') return energy >= 2;
-    return energy === 3;
-  });
+  return tasks.filter((task) => fitsEnergy(task.fit, energy));
 }
 
 export function streak(id: string, log: AppState['log'], now: Date): number {
@@ -739,11 +787,13 @@ export function normalizeState(raw: unknown, now = new Date()): AppState | null 
   const energyHistory = normalizeEnergyHistory(parsed.energyHistory);
   const storedDay = isDateKey(parsed.energyDay) ? parsed.energyDay : '';
   // Older saves stored only the last active day. Keep that single data point.
-  if (storedDay && storedDay <= today && energyHistory[storedDay] === undefined) {
+  // Only backfill a *past* day: today's energyDay is written on app open and
+  // must not turn into a saved energy value or a locked check-in.
+  if (storedDay && storedDay < today && energyHistory[storedDay] === undefined) {
     energyHistory[storedDay] = energy;
   }
   const currentEnergy = energyHistory[today] ?? (storedDay === today ? energy : 2);
-  const checkIns = normalizeCheckIns(parsed.checkIns, energyHistory);
+  const checkIns = normalizeCheckIns(parsed.checkIns, energyHistory, today);
 
   const tasks = parsed.tasks
     .filter((task): task is Task => !!task && typeof task === 'object' && typeof task.id === 'string')

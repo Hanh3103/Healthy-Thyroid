@@ -1,8 +1,8 @@
 /**
  * Daily check-in suggestion core.
  *
- * Framework-free so prompts and parsing can be unit tested. The AI transport
- * itself lives in shared/ai/client.ts.
+ * Framework-free so prompts and parsing can be unit tested. Live AI calls are
+ * made only by the Rust Diet generator; this module is local heuristics.
  */
 import type { EnergyLevel } from './model';
 
@@ -84,6 +84,44 @@ export function parseSymptomChips(raw: string): string[] {
     .map((part) => part.trim().replace(/\s+[-–]\s+/, ' - '))
     .filter(Boolean)
     .slice(0, 8);
+}
+
+const SHAREABLE_SYMPTOMS: { name: string; pattern: RegExp; severe?: boolean }[] = [
+  { name: 'chest pain', pattern: /chest pain/i, severe: true },
+  { name: 'shortness of breath', pattern: /short(?:ness of)? breath|difficulty breathing|trouble breathing/i, severe: true },
+  { name: 'fainting', pattern: /faint(?:ed|ing)?|passed out/i, severe: true },
+  { name: 'palpitations', pattern: /palpitations|racing heart|very fast heartbeat/i, severe: true },
+  { name: 'fatigue', pattern: /fatigue|tired|exhaust/i },
+  { name: 'poor sleep', pattern: /poor sleep|no sleep|insomnia/i },
+  { name: 'headache', pattern: /headache/i },
+  { name: 'pain', pattern: /pain|ache/i },
+  { name: 'fever', pattern: /fever/i },
+  { name: 'nausea', pattern: /nausea/i },
+  { name: 'dizziness', pattern: /dizzy|dizziness/i },
+  { name: 'cramps', pattern: /cramp/i },
+  { name: 'bloating', pattern: /bloated|bloating/i },
+  { name: 'weakness', pattern: /weak/i },
+  { name: 'low mood', pattern: /low mood/i },
+  { name: 'anxiety', pattern: /anxious|anxiety/i },
+  { name: 'stress', pattern: /stress/i },
+];
+
+/**
+ * Derives only controlled symptom names and a coarse severity from a saved
+ * check-in note. The original wording is never included in the result.
+ */
+export function symptomsFromNote(raw: string): { name: string; severity: 'mild' | 'moderate' | 'severe' }[] {
+  const text = raw.toLowerCase();
+  const cleared = text.replace(/no pain|pain[- ]free/g, ' ');
+  const severe = /\b(severe|extreme|very bad|worst|emergency|can't breathe|cannot breathe)\b/i.test(cleared);
+  const moderate = /\b(moderate|bad|significant|quite|strong)\b/i.test(cleared);
+  return SHAREABLE_SYMPTOMS
+    .filter((symptom) => symptom.pattern.test(cleared))
+    .slice(0, 8)
+    .map((symptom) => ({
+      name: symptom.name,
+      severity: symptom.severe || severe ? 'severe' : moderate ? 'moderate' : 'mild',
+    }));
 }
 
 /** Short rationale used when an AI suggestion omitted its reason. */

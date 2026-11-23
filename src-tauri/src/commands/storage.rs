@@ -45,3 +45,5 @@ pub fn save_json<R: Runtime>(app: &tauri::AppHandle<R>, file_name: &str, json: &
         .map_err(|error| format!("Could not replace {}: {error}", path.display()))?;
     Ok(())
 }
+
+

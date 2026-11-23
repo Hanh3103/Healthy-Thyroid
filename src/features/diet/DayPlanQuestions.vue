@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import AppButton from '../../shared/ui/AppButton.vue';
-import type { ConsentChoice, PlanScope } from './model';
+import type { ConsentChoice, PlanBasis, PlanScope } from './model';
+
+type Appetite = NonNullable<PlanBasis['appetite']>;
 
 const props = defineProps<{
   pantry: string[];
@@ -22,16 +24,23 @@ const emit = defineEmits<{
     scope: PlanScope;
     savePantry: boolean;
     skip: boolean;
+    appetite?: Appetite;
   }];
 }>();
 
 const PANTRY_CHIPS = ['eggs', 'oats', 'rice', 'lentils', 'frozen veg', 'leftovers'];
+const APPETITE_OPTIONS: Array<{ value: Appetite; label: string }> = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+];
 
 const pantryItems = ref([...props.pantry]);
 const pantryDraft = ref('');
 const wantsDraft = ref(props.wants.join(', '));
 const savePantry = ref(true);
 const selectedScope = ref<PlanScope>(props.scope);
+const appetite = ref<Appetite | undefined>(undefined);
 
 function addPantry(value: string): void {
   const clean = value.replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -79,6 +88,7 @@ function submit(skip: boolean): void {
     scope: selectedScope.value,
     savePantry: savePantry.value,
     skip,
+    appetite: appetite.value,
   });
 }
 </script>
@@ -148,16 +158,34 @@ function submit(skip: boolean): void {
       </div>
     </div>
 
+    <fieldset class="question-block appetite-block">
+      <legend>Appetite (optional)</legend>
+      <div class="choice-row" aria-label="Appetite (optional)">
+        <button
+          v-for="option in APPETITE_OPTIONS"
+          :key="option.value"
+          type="button"
+          class="pill appetite-choice"
+          :class="{ active: appetite === option.value }"
+          :aria-pressed="appetite === option.value"
+          @click="appetite = appetite === option.value ? undefined : option.value"
+        >{{ option.label }}</button>
+      </div>
+    </fieldset>
+
     <p class="also-used">
       Also used: your energy and how busy the day is, your Profile settings and the curated science notes.
     </p>
 
     <div v-if="consentChoice === 'unset'" class="consent-inline" role="note">
-      <p>
-        Before the first AI call, the chosen days' energy hint, planned minutes and task counts,
-        your Profile diet settings, these answers and saved food entries are sent.
-        No names, planner notes or medical records. The API key stays on this device.
-      </p>
+      <p>Before the first AI call, this is sent:</p>
+      <ul class="consent-list">
+        <li>Daily Check-in energy level for selected day(s), symptoms as name + severity only (never the free note), and busyness computed from task/habit counts and minutes.</li>
+        <li>Profile: medication time, meal times, diet preferences, allergies, avoided foods, cooking minutes, equipment, servings/leftovers, cuisine preference, shopping place and budget.</li>
+        <li>Diet: wanted foods and appetite for the day, pantry, recent meals from the last 3–5 days, kept meals, the changed meal when editing, shopping-item names only, and the curated fact library.</li>
+        <li>Computed by the app: days/weekdays, remaining meals for today, and the timing clock times.</li>
+        <li>No names, free notes, task/habit names, or medical records. API key stays in Rust.</li>
+      </ul>
       <div class="consent-actions">
         <AppButton variant="primary" @click="emit('consent', 'allowed')">Allow AI suggestions</AppButton>
         <AppButton @click="emit('consent', 'declined')">Use general ideas only</AppButton>
@@ -183,6 +211,7 @@ function submit(skip: boolean): void {
 }
 
 .scope-block,
+.appetite-block,
 .also-used,
 .consent-inline,
 .consent-off,
@@ -202,6 +231,18 @@ function submit(skip: boolean): void {
   font-size: 12px;
   line-height: 1.5;
   color: var(--ink-2);
+}
+
+.consent-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.consent-list li + li {
+  margin-top: 4px;
 }
 
 .consent-actions,
@@ -305,12 +346,14 @@ function submit(skip: boolean): void {
 }
 
 .quick-chip:hover,
-.scope-choice:hover {
+.scope-choice:hover,
+.appetite-choice:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.scope-choice.active {
+.scope-choice.active,
+.appetite-choice.active {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--surface);
@@ -340,7 +383,8 @@ function submit(skip: boolean): void {
 
 @media (prefers-reduced-motion: reduce) {
   .quick-chip,
-  .scope-choice {
+  .scope-choice,
+  .appetite-choice {
     transition: none;
   }
 }

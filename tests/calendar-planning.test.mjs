@@ -147,7 +147,7 @@ test('day answers and consent survive a save and explain the generated plan', ()
   storeRangePlanInDays(data, rangePlan, 'today', undefined, now, basis);
   assert.deepEqual(data.dayPlans[today].basedOn, basis);
   const restored = normalizeDietData({ dayPlans: data.dayPlans }, []);
-  assert.deepEqual(restored.dayPlans[today].basedOn, basis);
+  assert.deepEqual(restored.dayPlans[today].basedOn, { ...basis, appetite: undefined });
 });
 
 test('clearing test dates removes plans, answers and log entries but keeps settings', () => {

@@ -15,15 +15,14 @@ pub fn run() {
             // Planner (tasks)
             commands::tasks::load_planner,
             commands::tasks::save_planner,
+            commands::diet::prioritize_with_ai,
             // Thyroid Checker
             commands::thyroid::load_thyroid,
             commands::thyroid::save_thyroid,
             // Diet Advisor
             commands::diet::load_diet,
             commands::diet::save_diet,
-            commands::diet::suggest_meals,
-            commands::diet::update_shopping_list,
-            commands::diet::suggest_meal_alternative,
+            commands::diet::generate_diet_plan,
             commands::diet::get_last_plan,
             commands::diet::save_preferences,
             commands::diet::save_last_plan,
@@ -31,6 +30,8 @@ pub fn run() {
             // Profile
             commands::profile::load_profile,
             commands::profile::save_profile,
+            commands::profile::get_ai_credentials_status,
+            commands::profile::save_ai_credentials,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

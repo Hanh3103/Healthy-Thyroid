@@ -81,16 +81,34 @@ test('future contexts use tasks and habits for each exact date', () => {
   assert.ok(contexts.every((context) => context.energyIsHint === true));
 });
 
-test('AI input carries only wanted foods, pantry, settings, actual food and numbers', () => {
+test('AI input carries only wanted foods, pantry, canonical settings, actual food and shopping names', () => {
   const log = [{
     id: 'e1', date: '2026-11-21', slot: 'lunch', status: 'ate',
     text: 'lentil soup', createdAt: 1, updatedAt: 1,
   }];
+  const preferences = {
+    ...DEFAULT_PREFERENCES,
+    medicationTime: '07:30',
+    dietPreferences: 'vegetarian',
+    allergies: 'peanuts',
+    avoidFoods: 'sesame',
+    cookingMinutes: 25,
+    equipment: 'pan, oven',
+    servings: 2,
+    leftovers: true,
+    cuisinePreference: 'Thai',
+    shopping: 'Corner shop',
+    budget: 'low',
+  };
   const input = buildRangeInput(request({
     log,
     alarmingSymptoms: true,
     pantry: ['oats'],
-    settings: undefined,
+    preferences,
+    currentShopping: [
+      { name: 'Lentils', status: 'bought', inPlan: true, source: 'ai' },
+      { name: 'Rice', status: 'open', inPlan: false, source: 'user' },
+    ],
   }));
   assert.deepEqual(Object.keys(input), [
     'range', 'days', 'wants', 'pantry', 'settings', 'actual', 'shoppingList', 'todayHint', 'alarmingSymptoms',
@@ -100,6 +118,25 @@ test('AI input carries only wanted foods, pantry, settings, actual food and numb
   assert.deepEqual(input.actual, [{ date: '2026-11-21', slot: 'lunch', status: 'ate', text: 'lentil soup' }]);
   assert.deepEqual(input.todayHint, { date: '2026-11-21', energy: 'medium' });
   assert.equal(input.alarmingSymptoms, true);
+  assert.deepEqual(input.settings, {
+    medicationTime: '07:30',
+    mealTimes: { breakfast: '08:00', lunch: '12:30', dinner: '18:30' },
+    dietPreferences: 'vegetarian',
+    allergies: ['peanuts'],
+    avoidFoods: ['sesame'],
+    cookingMinutes: 25,
+    equipment: ['pan', 'oven'],
+    servings: 2,
+    leftovers: true,
+    cuisinePreference: 'Thai',
+    shopping: 'Corner shop',
+    budget: 'low',
+  });
+  assert.deepEqual(input.shoppingList, ['Lentils', 'Rice']);
+  assert.ok(input.shoppingList.every((name) => typeof name === 'string'));
+  assert.ok(!JSON.stringify(input.shoppingList).includes('status'));
+  assert.ok(!JSON.stringify(input.shoppingList).includes('inPlan'));
+  assert.ok(!JSON.stringify(input.shoppingList).includes('source'));
   assert.equal(JSON.stringify(input).includes('symptoms":'), false);
   assert.equal(JSON.stringify(input).includes('checkIn'), false);
 
@@ -188,11 +225,16 @@ test('meal statuses and editable actual entries normalize safely', () => {
   assert.equal(marked.meals[0].status, 'ate');
   assert.equal(day.meals[0].status, 'planned');
 
+  const storedDate = new Date().toISOString().slice(0, 10);
   const stored = normalizeDietData({
     pantry: ['oats', 'OATS', 'lentils'],
     wants: { today: ['soup'], tomorrow: ['salad'], week: ['leftovers'] },
-    log: [{ date: '2026-11-21', slot: 'lunch', status: 'ate-other', text: ' Vegetable  soup ' }],
-    plans: { today: { range: 'today', days: [day], shopping: plan.shopping } },
+    log: [{ date: storedDate, slot: 'lunch', status: 'ate-other', text: ' Vegetable  soup ' }],
+    plans: {
+      today: {
+        range: 'today', days: [{ ...day, date: storedDate }], shopping: plan.shopping,
+      },
+    },
   }, facts);
   assert.deepEqual(stored.pantry.map((item) => item.name), ['oats', 'lentils']);
   assert.deepEqual(stored.wants.week, ['leftovers']);
@@ -215,20 +257,46 @@ test('a legacy saved plan converts into a Today range plan', () => {
 
 test('Profile settings are normalised and destructive log copy uses the shared dialog shape', () => {
   const settings = normalizeDietSettings({
-    medicationTime: '7:00', breakfastTime: '25:99', diet: 'vegetarian',
-    avoid: 'peanuts, shellfish', maxCookMinutes: 9999, energyOverride: 'huge',
+    medicationTime: '7:00',
+    breakfastTime: '25:99',
+    dietPreferences: 'vegetarian',
+    allergies: 'peanuts, shellfish',
+    avoidFoods: 'sesame',
+    cookingMinutes: 9999,
+    equipment: 'blender',
+    servings: 3,
+    leftovers: true,
+    cuisinePreference: 'Thai',
+    shopping: 'Local shop',
+    budget: 'high',
   });
   assert.equal(settings.medicationTime, '07:00');
   assert.equal(settings.breakfastTime, DEFAULT_DIET_SETTINGS.breakfastTime);
-  assert.equal(settings.maxCookMinutes, 240);
-  assert.equal(settings.energyOverride, '');
-  assert.equal(settings.avoid, 'peanuts, shellfish');
+  assert.equal(settings.dietPreferences, 'vegetarian');
+  assert.equal(settings.allergies, 'peanuts, shellfish');
+  assert.equal(settings.avoidFoods, 'sesame');
+  assert.equal(settings.cookingMinutes, 240);
+  assert.equal(settings.servings, 3);
+  assert.equal(settings.leftovers, true);
+  assert.equal(settings.budget, 'high');
+  assert.equal('energyOverride' in settings, false);
+  assert.equal('busynessOverride' in settings, false);
 
   const copy = confirmCopy('My actual lunch');
   assert.equal(copy.title, 'Delete food entry?');
   assert.equal(copy.subject, 'My actual lunch');
   assert.equal(copy.tone, 'danger');
   assert.equal(copy.confirmLabel, 'Delete entry');
+});
+
+test('legacy profile field names still migrate to canonical settings', () => {
+  const migrated = normalizeDietSettings({
+    diet: 'vegetarian', avoid: 'peanuts, shellfish', maxCookMinutes: 45,
+  });
+  assert.equal(migrated.dietPreferences, 'vegetarian');
+  assert.equal(migrated.allergies, 'peanuts, shellfish');
+  assert.equal(migrated.avoidFoods, 'peanuts, shellfish');
+  assert.equal(migrated.cookingMinutes, 45);
 });
 
 test('remaining slots use Profile meal times and always keep snacks', () => {

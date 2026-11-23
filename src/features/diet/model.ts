@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_DIET_SETTINGS,
   normalizeDietSettings,
+  splitProfileList,
   type DietSettings,
 } from '../profile/dietSettings.ts';
 
@@ -32,6 +33,7 @@ export type ConsentChoice = 'unset' | 'allowed' | 'declined';
 export interface PlanBasis {
   pantry: string[];
   wants: string[];
+  appetite?: 'low' | 'normal' | 'high';
 }
 
 export interface DayPlanAnswers extends PlanBasis {
@@ -273,15 +275,20 @@ export interface RangeInput {
   pantry: string[];
   settings: {
     medicationTime: string;
-    breakfastTime: string;
-    lunchTime: string;
-    dinnerTime: string;
-    diet: string;
-    avoid: string;
-    maxCookMinutes: number;
+    mealTimes: { breakfast: string; lunch: string; dinner: string };
+    dietPreferences: string;
+    allergies: string[];
+    avoidFoods: string[];
+    cookingMinutes: number;
+    equipment: string[];
+    servings: number;
+    leftovers: boolean;
+    cuisinePreference: string;
+    shopping: string;
+    budget: 'low' | 'medium' | 'high';
   };
   actual: { date: string; slot: MealSlot; status: MealStatus; text: string }[];
-  shoppingList?: { name: string; status: 'open' | 'bought' | 'removed'; inPlan: boolean; source: 'ai' | 'user' }[];
+  shoppingList?: string[];
   todayHint?: { date: string; energy: DietEnergy };
   alarmingSymptoms: boolean;
 }
@@ -390,7 +397,7 @@ export function computeBusyness(totalMinutes: number): Busyness {
 export function buildDietContext(
   state: AppState,
   plannerEnergy: PlannerEnergy,
-  preferences: DietPreferences,
+  _preferences: DietPreferences,
   now: Date = new Date(),
 ): DietContext {
   const todayTasks = state.tasks.filter((task) => !task.done && isTodayTask(task));
@@ -401,8 +408,8 @@ export function buildDietContext(
 
   return {
     date: keyOf(now),
-    energy: preferences.energyOverride || energyFromPlanner(plannerEnergy),
-    busyness: preferences.busynessOverride || computeBusyness(taskMinutes + habitMinutes),
+    energy: energyFromPlanner(plannerEnergy),
+    busyness: computeBusyness(taskMinutes + habitMinutes),
     totalMinutes: taskMinutes + habitMinutes,
     taskCount: fitted.length,
   };
@@ -415,7 +422,7 @@ export function buildDietContext(
 export function buildContextsForDates(
   state: AppState,
   dates: Date[],
-  preferences: DietPreferences,
+  _preferences: DietPreferences,
   today: DietContext,
 ): DietContext[] {
   return dates.map((date) => {
@@ -430,7 +437,7 @@ export function buildContextsForDates(
     return {
       date: key,
       energy: energyFromPlanner(plannerEnergy),
-      busyness: preferences.busynessOverride || computeBusyness(taskMinutes + habitMinutes),
+      busyness: computeBusyness(taskMinutes + habitMinutes),
       totalMinutes: taskMinutes + habitMinutes,
       taskCount: fitted.length,
       energyIsHint: true,
@@ -699,6 +706,9 @@ function normalizeBasis(value: unknown): PlanBasis {
   return {
     pantry: normalizeTextList(raw.pantry, 40, 80),
     wants: normalizeTextList(raw.wants, 16, 100),
+    appetite: raw.appetite === 'low' || raw.appetite === 'normal' || raw.appetite === 'high'
+      ? raw.appetite
+      : undefined,
   };
 }
 
@@ -1134,12 +1144,21 @@ export function buildRangeInput(request: RangeRequest): RangeInput {
     pantry: request.pantry,
     settings: {
       medicationTime: settings.medicationTime,
-      breakfastTime: settings.breakfastTime,
-      lunchTime: settings.lunchTime,
-      dinnerTime: settings.dinnerTime,
-      diet: settings.diet,
-      avoid: settings.avoid,
-      maxCookMinutes: settings.maxCookMinutes,
+      mealTimes: {
+        breakfast: settings.breakfastTime,
+        lunch: settings.lunchTime,
+        dinner: settings.dinnerTime,
+      },
+      dietPreferences: settings.dietPreferences,
+      allergies: splitProfileList(settings.allergies),
+      avoidFoods: splitProfileList(settings.avoidFoods),
+      cookingMinutes: settings.cookingMinutes,
+      equipment: splitProfileList(settings.equipment),
+      servings: settings.servings,
+      leftovers: settings.leftovers,
+      cuisinePreference: settings.cuisinePreference,
+      shopping: settings.shopping,
+      budget: settings.budget,
     },
     actual: request.log
       .filter((entry) => request.dates.includes(entry.date))
@@ -1150,12 +1169,7 @@ export function buildRangeInput(request: RangeRequest): RangeInput {
         status: entry.status,
         text: entry.text,
       })),
-    shoppingList: request.currentShopping?.slice(0, 80).map((item) => ({
-      name: item.name,
-      status: item.status,
-      inPlan: item.inPlan,
-      source: item.source,
-    })),
+    shoppingList: request.currentShopping?.slice(0, 80).map((item) => item.name),
     todayHint: request.hint
       ? { date: request.hint.date, energy: request.hint.energy }
       : undefined,
@@ -1253,17 +1267,14 @@ export function ingredientsFromText(text: string): string[] {
 }
 
 function respectsPreferences(template: IdeaTemplate, preferences: DietPreferences): boolean {
-  const diet = preferences.diet.toLowerCase();
-  const noAnimal = /vegan|vegetarian|\bveg\b/.test(diet);
+  const noAnimal = /vegan|vegetarian|\bveg\b/i.test(preferences.dietPreferences);
   if (noAnimal && template.tags.some((tag) => ['fish', 'meat', 'eggs', 'dairy'].includes(tag))) return false;
 
-  const avoid = preferences.avoid
-    .split(/[,;\n]+/)
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean);
-  if (!avoid.length) return true;
+  const blocked = [...splitProfileList(preferences.allergies), ...splitProfileList(preferences.avoidFoods)]
+    .map((word) => word.toLowerCase());
+  if (!blocked.length) return true;
   const haystack = `${template.idea} ${template.tags.join(' ')}`.toLowerCase();
-  return !avoid.some((word) => haystack.includes(word) || template.tags.some((tag) => word.includes(tag)));
+  return !blocked.some((word) => haystack.includes(word) || template.tags.some((tag) => word.includes(tag)));
 }
 
 function pickIdea(pool: IdeaTemplate[], preferences: DietPreferences, cap: number): IdeaTemplate {
@@ -1278,8 +1289,8 @@ function pickIdea(pool: IdeaTemplate[], preferences: DietPreferences, cap: numbe
 export function heuristicMeal(slot: MealSlot, context: DietContext, preferences: DietPreferences): MealIdea {
   const quick = context.busyness === 'packed' || context.energy === 'low';
   const cap = quick
-    ? Math.min(preferences.maxCookMinutes || 10, 10)
-    : Math.min(Math.max(preferences.maxCookMinutes || 30, 5), 240);
+    ? Math.min(preferences.cookingMinutes || 10, 10)
+    : Math.min(Math.max(preferences.cookingMinutes || 30, 5), 240);
   const pool = slot === 'snack' ? SNACK_IDEAS : (quick ? QUICK_IDEAS : SLOW_IDEAS)[slot];
   const idea = pickIdea(pool, preferences, cap);
   return {
@@ -1294,15 +1305,17 @@ export function heuristicMeal(slot: MealSlot, context: DietContext, preferences:
   };
 }
 
+/** Clock timeline computed by the app. Science claims stay with curated facts. */
 export function buildTimingNotes(preferences: DietPreferences): TimingNote[] {
-  const dose = preferences.medicationTime || DEFAULT_PREFERENCES.medicationTime;
-  const breakfast = preferences.breakfastTime || DEFAULT_PREFERENCES.breakfastTime;
-  return [
-    { text: `Take thyroid medication at ${dose} on an empty stomach with water, then wait 30–60 minutes before breakfast at ${breakfast}.`, factIds: ['T1'] },
-    { text: 'Keep coffee at least 30–60 minutes away from the dose.', factIds: ['T2'] },
-    { text: 'Separate calcium, iron supplements and antacids from the dose by about 4 hours.', factIds: ['T3'] },
-    { text: 'Keep soy and very high-fiber foods consistent around the dose.', factIds: ['T4'] },
+  const entries: [string, string][] = [
+    ['Medication', preferences.medicationTime],
+    ['Breakfast', preferences.breakfastTime],
+    ['Lunch', preferences.lunchTime],
+    ['Dinner', preferences.dinnerTime],
   ];
+  return entries
+    .filter(([, time]) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time))
+    .map(([label, time]) => ({ text: `${label}: ${time}`, factIds: [] }));
 }
 
 export function emergencyPlan(context: DietContext): DietPlan {
@@ -1632,12 +1645,11 @@ function withPlannedMeta(meal: MealIdea, day: string, kind: MealKind): PlannedMe
 }
 
 function timingFor(preferences: DietPreferences, facts: ThyroidFact[], raw?: unknown): TimingNote[] {
-  let notes = normalizeTimingNotes(raw, facts);
-  if (!notes.length) notes = buildTimingNotes(preferences);
-  if (!notes.some((note) => note.factIds.includes('T1'))) {
-    notes = [buildTimingNotes(preferences)[0], ...notes];
-  }
-  return notes;
+  // The app owns every clock time; the model may only add fact-backed advice.
+  const clock = buildTimingNotes(preferences);
+  const advice = normalizeTimingNotes(raw, facts)
+    .filter((note) => note.factIds.length > 0 && !/^\d{1,2}:\d{2}\b/.test(note.text));
+  return [...clock, ...advice].slice(0, 8);
 }
 
 function finishRange(

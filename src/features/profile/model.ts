@@ -1,15 +1,14 @@
 /**
- * Profile feature model.
+ * Profile AI configuration model.
  *
- * Owns the AI provider presets and the shape/validation of the shared AI
- * configuration. Pure data + rules only — no persistence and no Vue.
+ * The API key is entered in the Profile UI but is stored only in Rust app-data
+ * and never returned to Vue. The frontend only handles provider/endpoint/model
+ * and a masked status.
  */
-
 export type AIProvider = 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral' | 'ollama';
 
 export interface AIConfig {
   provider: AIProvider;
-  apiKey: string;
   endpoint: string;
   model: string;
 }
@@ -22,23 +21,33 @@ export interface ProviderPreset {
 /** Built-in presets; `custom` has no preset because the user supplies everything. */
 export const AI_ENDPOINTS: Record<Exclude<AIProvider, 'custom'>, ProviderPreset> = {
   openai: { endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
-  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-3.5-flash' },
+  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-3.8-flash' },
   claude: { endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-3-5-haiku-latest' },
   mistral: { endpoint: 'https://api.mistral.ai/v1/chat/completions', model: 'mistral-small-latest' },
   ollama: { endpoint: 'http://localhost:11434/api/chat', model: 'llama3.2' },
 };
 
 export const AI_PROVIDER_OPTIONS: Array<{ value: AIProvider; label: string }> = [
-  { value: 'custom', label: 'Custom' },
-  { value: 'openai', label: 'OpenAI / GPT' },
+  { value: 'openai', label: 'OpenAI / compatible' },
   { value: 'gemini', label: 'Google Gemini' },
   { value: 'claude', label: 'Anthropic Claude' },
   { value: 'mistral', label: 'Mistral' },
-  { value: 'ollama', label: 'Ollama' },
+  { value: 'ollama', label: 'Ollama (local)' },
+  { value: 'custom', label: 'Custom' },
 ];
 
+export interface AiCredentialsStatus {
+  configured: boolean;
+  source: 'app_data' | 'environment' | 'none';
+  provider: AIProvider;
+  endpoint: string;
+  model: string;
+  apiKeyMasked: string;
+  hasStoredKey: boolean;
+}
+
 export function emptyConfig(): AIConfig {
-  return { provider: 'custom', apiKey: '', endpoint: '', model: '' };
+  return { provider: 'openai', endpoint: AI_ENDPOINTS.openai.endpoint, model: AI_ENDPOINTS.openai.model };
 }
 
 /** Returns the preset for a known provider, or null for `custom`. */
@@ -54,22 +63,21 @@ export function withPreset(config: AIConfig, provider: AIProvider): AIConfig {
     : { ...config, provider };
 }
 
-/** Coerces persisted/user input into a valid config. */
+/** Complete when endpoint/model present and provider not custom-empty; key checked separately in Rust. */
+export function isConfigComplete(config: AIConfig): boolean {
+  return !!config.endpoint.trim() && !!config.model.trim();
+}
+
+/** Coerces persisted/user input into a valid config. Never includes an API key. */
 export function normalizeConfig(value: unknown): AIConfig {
   const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const provider = typeof raw.provider === 'string' && raw.provider in AI_ENDPOINTS
     ? raw.provider as AIProvider
-    : raw.provider === 'custom' ? 'custom' : 'custom';
+    : raw.provider === 'custom' ? 'custom' : 'openai';
+  const base = emptyConfig();
   return {
     provider,
-    apiKey: typeof raw.apiKey === 'string' ? raw.apiKey.trim() : '',
-    endpoint: typeof raw.endpoint === 'string' ? raw.endpoint.trim() : '',
-    model: typeof raw.model === 'string' ? raw.model.trim() : '',
+    endpoint: typeof raw.endpoint === 'string' && raw.endpoint.trim() ? raw.endpoint.trim() : base.endpoint,
+    model: typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : base.model,
   };
-}
-
-/** True when a config has everything required to make an AI request. */
-export function isConfigComplete(config: AIConfig): boolean {
-  if (!config.endpoint || !config.model) return false;
-  return config.provider === 'ollama' || config.apiKey.length > 0;
 }

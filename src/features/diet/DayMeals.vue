@@ -22,6 +22,7 @@ interface QuestionAnswers {
   scope: PlanScope;
   savePantry: boolean;
   skip: boolean;
+  appetite?: 'low' | 'normal' | 'high';
 }
 
 const props = defineProps<{ date: string }>();
@@ -33,6 +34,8 @@ const {
   facts,
   data,
   errorText,
+  canRetryGeneration,
+  retryGeneration,
   generationNote,
   planStaleNote,
   consentChoice,
@@ -45,6 +48,7 @@ const {
   shoppingCountForDate,
   logForDate,
   generateForDate,
+  regenerate,
   setConsentChoice,
   markMealForDate,
   editMealForDate,
@@ -288,6 +292,7 @@ async function submitAnswers(payload: QuestionAnswers): Promise<void> {
     wants: source.wants,
     scope: payload.scope,
     savePantry: payload.skip ? true : payload.savePantry,
+    appetite: source.appetite,
   });
   notice.value = note;
   if (!note || plan.value) {
@@ -391,8 +396,11 @@ async function regeneratePlan(): Promise<void> {
 
     <p v-if="generationNote" class="status is-ready" role="status">{{ generationNote }}</p>
     <div v-if="planStaleNote" class="status stale-banner" role="status">
-      <span>{{ planStaleNote }}</span>
-      <AppButton size="sm" variant="primary" @click="regeneratePlan">Regenerate</AppButton>
+      <div class="stale-copy">
+        <span>{{ planStaleNote }}</span>
+        <span class="stale-question">Your energy, symptoms or meals changed. Regenerate this plan now?</span>
+      </div>
+      <AppButton size="sm" variant="primary" @click="regenerate">Regenerate</AppButton>
     </div>
     <p v-if="notice" class="status" role="status">{{ notice }}</p>
 
@@ -518,7 +526,10 @@ async function regeneratePlan(): Promise<void> {
       <p v-if="!canPlan" class="muted">This day is outside the two-week planning window.</p>
     </div>
 
-    <p v-if="errorText" class="error-text" role="alert">{{ errorText }}</p>
+    <div v-if="errorText" class="error-row" role="alert">
+      <p class="error-text">{{ errorText }}</p>
+      <AppButton v-if="canRetryGeneration" size="sm" @click="retryGeneration">Retry</AppButton>
+    </div>
 
     <p class="diet-disclaimer">
       General food ideas, not medical advice. Talk to your doctor or a dietitian about your diet and medication.
@@ -646,6 +657,24 @@ async function regeneratePlan(): Promise<void> {
   border-radius: var(--radius-buttons);
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   font-size: 12px;
+}
+
+.stale-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stale-question {
+  color: var(--ink-2);
+}
+
+.error-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .basis-line {

@@ -34,6 +34,11 @@ export async function tauriSave<T>(command: string, value: T): Promise<boolean> 
   }
 }
 
+/** Calls a Tauri command with named arguments and returns its typed result. */
+export async function tauriInvoke<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  return invoke<T>(command, args);
+}
+
 /** Browser fallback: read and parse JSON from localStorage. */
 export function localLoad<T>(key: string): T | null {
   try {

@@ -25,6 +25,7 @@ function on(action: 'done' | 'imp' | 'details' | 'today' | 'del'): void {
         {{ task.title }}
       </button>
       <p v-if="task.reason" class="reason">{{ task.reason }}</p>
+      <span v-if="task.movedFromToday" class="chip todo" title="Moved out of Today because it needs more energy at today's level. Use Move to Today to bring it back.">Moved from Today — needs more energy</span>
       <span v-if="task.estimateSource === 'heuristic'" class="chip todo" title="This estimate was calculated from the task name, not by AI">Heuristic estimate</span>
       <div class="meta">
         <button type="button" class="pill imp" :class="'imp' + task.imp" title="Click to cycle urgency" @click="on('imp')">{{ IM_NAMES[task.imp] }}</button>

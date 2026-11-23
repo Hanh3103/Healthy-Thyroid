@@ -11,8 +11,7 @@ globalThis.document ??= { getElementById: () => null, createElement: () => elem(
 globalThis.localStorage ??= { _d: {}, getItem(k){return this._d[k]??null;}, setItem(k,v){this._d[k]=String(v);}, removeItem(k){delete this._d[k];} };
 globalThis.navigator ??= { onLine: true };
 
-let shoppingUpdateImpl;
-let alternativeImpl;
+let editIngredientsImpl;
 
 // useDiet imports `* as api` and ESM namespaces are read-only, so mock the
 // module itself before importing the composable.
@@ -24,10 +23,8 @@ mock.module(new URL('../src/features/diet/api.ts', import.meta.url).href, {
     getLastPlan: async () => null,
     saveLastPlan: async () => {},
     setConsent: async () => {},
-    requestSuggestion: async () => { throw new Error('requestSuggestion was not stubbed'); },
-    requestRangeSuggestion: async () => { throw new Error('requestRangeSuggestion was not stubbed'); },
-    requestShoppingUpdate: (input) => shoppingUpdateImpl(input),
-    requestMealAlternative: (input) => alternativeImpl(input),
+    requestDietPlan: async () => { throw new Error('requestDietPlan was not stubbed'); },
+    requestMealEditIngredients: (input) => editIngredientsImpl(input),
   },
 });
 
@@ -47,11 +44,8 @@ const shopping = (diet) => JSON.parse(JSON.stringify(diet.data.value.shopping));
 const findItem = (diet, name) => shopping(diet).find((item) => item.name === name);
 
 function seedDay() {
-  shoppingUpdateImpl = async () => {
-    throw new Error('requestShoppingUpdate was not stubbed');
-  };
-  alternativeImpl = async () => {
-    throw new Error('requestMealAlternative was not stubbed');
+  editIngredientsImpl = async () => {
+    throw new Error('requestMealEditIngredients was not stubbed');
   };
 
   const diet = useDiet();
@@ -101,9 +95,11 @@ test('editing an Ate this meal updates logged text and does not queue shopping u
 test('two rapid meal edits batch into one AI call after 1.5s and update shopping with Undo', async () => {
   const diet = seedDay();
   const calls = [];
-  shoppingUpdateImpl = async (input) => {
+  let returned;
+  editIngredientsImpl = async (input) => {
     calls.push(input);
-    return { add: ['rice'], remove: ['pasta'] };
+    returned = { add: ['rice'], remove: [] };
+    return returned;
   };
 
   await diet.editMealForDate(today, 'm2', { idea: 'Rice bowl', ingredients: ['rice'], prepMinutes: 10 });
@@ -113,7 +109,14 @@ test('two rapid meal edits batch into one AI call after 1.5s and update shopping
   await new Promise((r) => setTimeout(r, 1700));
 
   assert.equal(calls.length, 1, 'one batched call');
-  assert.equal(calls[0].edits.length, 2);
+  assert.equal(calls[0].mode, 'editMeal');
+  assert.equal(calls[0].changedMeal.old.idea, 'Pasta');
+  assert.equal(calls[0].changedMeal.new.idea, 'Rice bowl');
+  assert.equal(calls[0].changedMeal.new.prepMinutes, 10);
+  assert.deepEqual(Object.keys(calls[0].changedMeal.new), ['idea', 'ingredients', 'prepMinutes']);
+  assert.deepEqual(Object.keys(returned), ['add', 'remove'], 'edit reply carries no new meal');
+  assert.equal(returned.meal, undefined);
+  assert.equal(returned.idea, undefined);
   assert.equal(diet.shoppingUpdateStatus.value, 'done');
   assert.ok(findItem(diet, 'rice'), 'new AI item is added to the unified list');
   assert.equal(findItem(diet, 'pasta').inPlan, false, 'removed AI item is no longer needed');
@@ -129,7 +132,7 @@ test('two rapid meal edits batch into one AI call after 1.5s and update shopping
 test('failed/offline update keeps list, shows Retry, and adds missing entered ingredients as New fallback', async () => {
   const diet = seedDay();
   let calls = 0;
-  shoppingUpdateImpl = async () => {
+  editIngredientsImpl = async () => {
     calls += 1;
     throw new Error('offline');
   };
@@ -147,15 +150,18 @@ test('failed/offline update keeps list, shows Retry, and adds missing entered in
   assert.equal(findItem(diet, 'pasta').inPlan, true, 'existing AI item is kept');
 });
 
-test('suggest another idea returns an alternative meal for the slot', async () => {
+test('suggest another idea uses a local heuristic, not an AI API call', async () => {
   const diet = seedDay();
-  alternativeImpl = async (input) => {
-    assert.equal(input.slot, 'dinner');
-    return { idea: 'Quinoa bowl', ingredients: ['quinoa', 'beans'], prepMinutes: 12 };
-  };
+  let apiCalls = 0;
+  editIngredientsImpl = async () => { apiCalls += 1; return { add: [], remove: [] }; };
 
   const suggestion = await diet.suggestMealAlternative(today, 'm2');
-  assert.deepEqual(suggestion, { idea: 'Quinoa bowl', ingredients: ['quinoa', 'beans'], prepMinutes: 12 });
+  assert.ok(suggestion);
+  assert.equal(typeof suggestion.idea, 'string');
+  assert.notEqual(suggestion.idea, 'Pasta');
+  assert.ok(Array.isArray(suggestion.ingredients));
+  assert.ok(suggestion.prepMinutes > 0);
+  assert.equal(apiCalls, 0, 'no API call for a local alternative');
 });
 
 test('adding items splits commas, keeps quantity and days, and drops pantry basics', async () => {

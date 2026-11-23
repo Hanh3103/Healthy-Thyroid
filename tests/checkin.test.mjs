@@ -79,6 +79,7 @@ test('normalizeState keeps valid check-ins and locks saved days', () => {
   assert.ok(normalized);
   assert.deepEqual(normalized.checkIns['2026-11-21'], {
     symptoms: 'A little tired',
+    symptomEntries: [{ name: 'fatigue', severity: 'mild' }],
     level: 2,
     suggested: 1,
     aiReason: null,

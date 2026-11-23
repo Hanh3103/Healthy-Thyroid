@@ -7,6 +7,7 @@ import {
   normalizeDietData,
   storeRangePlanInDays,
 } from '../src/features/diet/model.ts';
+import { DEFAULT_DIET_SETTINGS } from '../src/features/profile/dietSettings.ts';
 
 const now = new Date(2026, 10, 21, 12, 0, 0);
 const today = '2026-11-21';
@@ -131,14 +132,14 @@ test('add/remove shopping works for today, tomorrow and week day plans', () => {
   assert.equal(data.shopping.find((i) => i.name === `Milk ${today}`).status, 'open');
 });
 
-test('AI input receives current shopping list names and status', () => {
+test('AI input receives current shopping list names only', () => {
   const input = buildRangeInput({
     range: 'today',
     dates: [today],
     contexts: [{ date: today, energy: 'medium', busyness: 'normal', totalMinutes: 0, taskCount: 0 }],
     wants: [],
     pantry: [],
-    preferences: { allergies: [], dietStyle: 'none', dislikes: [], cuisine: [], cookingTime: 'any', mealsPerDay: 3 },
+    preferences: { ...DEFAULT_DIET_SETTINGS, allergies: 'peanuts', avoidFoods: 'sesame' },
     log: [],
     alarmingSymptoms: false,
     currentShopping: [
@@ -146,10 +147,10 @@ test('AI input receives current shopping list names and status', () => {
       { name: 'Rice', status: 'removed', inPlan: true, source: 'ai' },
     ],
   });
-  assert.deepEqual(input.shoppingList, [
-    { name: 'Lentils', status: 'bought', inPlan: true, source: 'ai' },
-    { name: 'Rice', status: 'removed', inPlan: true, source: 'ai' },
-  ]);
+  assert.deepEqual(input.shoppingList, ['Lentils', 'Rice']);
+  assert.ok(input.shoppingList.every((name) => typeof name === 'string'));
+  assert.deepEqual(input.settings.allergies, ['peanuts']);
+  assert.deepEqual(input.settings.avoidFoods, ['sesame']);
 });
 
 test('week items are persisted in the one list and merged on week regenerate with summary/undo', () => {

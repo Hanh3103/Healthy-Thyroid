@@ -1,12 +1,12 @@
 /**
  * Profile ViewModel.
  *
- * Exposes the shared AI config for editing and the Profile-owned diet
- * settings. The AI config lives in the Pinia store so Planner sees changes
- * immediately; diet settings use a shared module ref (see settings.ts).
+ * Exposes AI provider configuration and Profile-owned diet settings.
+ * The API key is entered here but saved only through Tauri to Rust app-data;
+ * Vue never stores or displays the raw key, only masked status from Rust.
  */
 import { computed, ref } from 'vue';
-import { useAiStore } from '../../stores/ai';
+import { isTauri } from '../../shared/platform';
 import {
   AI_PROVIDER_OPTIONS,
   emptyConfig,
@@ -14,24 +14,21 @@ import {
   presetFor,
   type AIConfig,
   type AIProvider,
+  type AiCredentialsStatus,
 } from './model';
 import { loadSettings, saveSettings as persistSettings } from './settings';
 import { dietSettings } from './settings';
 import type { DietSettings } from './dietSettings';
+import { getAiCredentialsStatus, saveAiCredentials } from './api';
 
 const status = ref('');
 const settingsStatus = ref('');
 const draft = ref<AIConfig>(emptyConfig());
+const apiKeyInput = ref('');
+const credentials = ref<AiCredentialsStatus | null>(null);
 const settingsDraft = ref<DietSettings>({ ...dietSettings.value });
 let initialised = false;
 let settingsInitialised = false;
-
-function seedDraft(): void {
-  const store = useAiStore();
-  draft.value = { ...store.config };
-  status.value = '';
-  initialised = true;
-}
 
 function seedSettingsDraft(): void {
   settingsDraft.value = { ...dietSettings.value };
@@ -39,9 +36,16 @@ function seedSettingsDraft(): void {
   settingsInitialised = true;
 }
 
-export function useProfile() {
-  const store = useAiStore();
+function applyStatus(next: AiCredentialsStatus): void {
+  credentials.value = next;
+  draft.value = {
+    provider: next.provider || draft.value.provider,
+    endpoint: next.endpoint || draft.value.endpoint,
+    model: next.model || draft.value.model,
+  };
+}
 
+export function useProfile() {
   const complete = computed(() => isConfigComplete(draft.value));
   const providerLabel = computed(() =>
     AI_PROVIDER_OPTIONS.find((option) => option.value === draft.value.provider)?.label ?? 'Custom');
@@ -55,16 +59,39 @@ export function useProfile() {
     };
   }
 
+  async function refreshCredentials(): Promise<void> {
+    if (!isTauri()) {
+      credentials.value = {
+        configured: false,
+        source: 'none',
+        provider: draft.value.provider,
+        endpoint: draft.value.endpoint,
+        model: draft.value.model,
+        apiKeyMasked: '',
+        hasStoredKey: false,
+      };
+      return;
+    }
+    applyStatus(await getAiCredentialsStatus());
+  }
+
   function reset(): void {
-    seedDraft();
-    status.value = 'Settings reset to saved values.';
+    apiKeyInput.value = '';
+    if (credentials.value) applyStatus(credentials.value);
+    status.value = 'AI settings reset to saved values.';
   }
 
   async function save(): Promise<void> {
-    await store.save(draft.value);
-    status.value = complete.value
-      ? 'AI configuration saved.'
-      : 'AI configuration saved, but it may be incomplete.';
+    if (!isTauri()) {
+      status.value = 'AI credentials can be saved only in the desktop app (npm run tauri dev).';
+      return;
+    }
+    const next = await saveAiCredentials({ ...draft.value, apiKey: apiKeyInput.value });
+    applyStatus(next);
+    apiKeyInput.value = '';
+    status.value = next.configured
+      ? `AI configuration saved${next.apiKeyMasked ? ` (${next.apiKeyMasked})` : ''}.`
+      : 'AI configuration saved, but an API key is still required.';
   }
 
   function resetDietSettings(): void {
@@ -77,24 +104,25 @@ export function useProfile() {
     settingsStatus.value = 'Diet settings saved. The Diet Advisor will use them on its next plan.';
   }
 
-  /** Called when the view mounts; loads both saved config and settings. */
   async function init(): Promise<void> {
-    await store.load();
-    if (!initialised) seedDraft();
+    await refreshCredentials();
+    initialised = true;
     await loadSettings();
     if (!settingsInitialised) seedSettingsDraft();
   }
 
   return {
     draft,
+    apiKeyInput,
+    credentials,
     status,
     complete,
     providerLabel,
     options: AI_PROVIDER_OPTIONS,
-    savedConfig: computed(() => store.config),
     settingsDraft,
     settingsStatus,
     savedSettings: computed(() => dietSettings.value),
+    initialised: computed(() => initialised),
     selectProvider,
     reset,
     save,

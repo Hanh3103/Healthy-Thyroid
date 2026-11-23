@@ -33,6 +33,8 @@ const editIngredients = ref<string[]>([]);
 const ingredientDraft = ref('');
 const editPrep = ref(10);
 const suggesting = ref(false);
+/** AI meal editing only returns ingredients; it must not suggest replacement meals. */
+const showSuggestAlternative = ref(false);
 
 watch(() => props.actualEntry?.id, () => {
   editingOther.value = false;
@@ -154,7 +156,7 @@ async function suggestAnother(): Promise<void> {
           <AppButton variant="ghost" size="sm" type="button" :equal="true" @click="cancelEditMeal">Cancel</AppButton>
           <AppButton variant="primary" size="sm" type="submit" :equal="true">Save</AppButton>
         </AppFormActions>
-        <div class="meal-edit-suggest">
+        <div v-if="showSuggestAlternative" class="meal-edit-suggest">
           <button type="button" class="link-btn" :disabled="suggesting || !suggestAlternative" @click="suggestAnother">{{ suggesting ? 'Suggesting…' : 'Suggest another idea' }}</button>
         </div>
       </form>

@@ -3,7 +3,7 @@
  * Tauri: `planner.json` via load/save commands. Browser: localStorage.
  * Legacy browser state is migrated to Tauri storage once, then removed.
  */
-import { isTauri, tauriLoad, tauriSave, localLoad, localSave, localRemove } from '../../shared/platform';
+import { isTauri, tauriInvoke, tauriLoad, tauriSave, localLoad, localSave, localRemove } from '../../shared/platform';
 import {
   STORAGE_KEY,
   URGENCY_MIGRATION_KEY,
@@ -45,6 +45,17 @@ export async function loadPlanner(): Promise<AppState> {
     localRemove(URGENCY_MIGRATION_KEY);
   }
   return legacy;
+}
+
+/**
+ * Asks the configured desktop AI to estimate and rank today's tasks.
+ * The API key stays in Rust; only the prompt crosses the invoke boundary.
+ */
+export async function requestAiPrioritization(prompt: string): Promise<string> {
+  if (!isTauri()) {
+    throw new Error('AI prioritization is available only in the desktop app.');
+  }
+  return tauriInvoke<string>('prioritize_with_ai', { prompt });
 }
 
 /** Persists planner state. */

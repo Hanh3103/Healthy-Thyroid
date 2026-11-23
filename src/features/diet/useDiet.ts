@@ -14,6 +14,7 @@ import {
   detectAlarmingSymptoms,
   emergencyRangePlan,
   energyLabel,
+  heuristicMeal,
   heuristicRangePlan,
   isDatePlannable,
   legacyRangePlan,
@@ -53,6 +54,7 @@ import {
   type ShoppingMerge,
   type ThyroidFact,
 } from './model';
+import { buildDietAiRequest, type Appetite, type DietAiMode, type DietAiRequest } from './ai.ts';
 import { usePlanner } from '../planner/usePlanner';
 import { dietSettings, loadSettings } from '../profile/settings';
 import * as api from './api';
@@ -65,6 +67,7 @@ const planner = usePlanner();
 interface GenerateOptions extends Partial<PlanBasis> {
   scope?: PlanScope;
   savePantry?: boolean;
+  mode?: DietAiMode;
 }
 
 export type ShoppingFilter = 'all' | 'today' | 'tomorrow' | 'this-week' | 'next-week' | { date: string };
@@ -74,6 +77,8 @@ const activeRange = ref<DietRange>('today');
 const status = ref<'idle' | 'loading' | 'ready' | 'error' | 'offline'>('idle');
 const statusText = ref('');
 const errorText = ref('');
+const canRetryGeneration = ref(false);
+let lastFailedAiRequest: DietAiRequest | null = null;
 const selectedFactId = ref<string | null>(null);
 /** Set by the calendar's Generate button until the consent dialog is answered. */
 const pendingGeneration = ref<{
@@ -81,6 +86,7 @@ const pendingGeneration = ref<{
   range: DietRange;
   note: string;
   showClipping: boolean;
+  mode: DietAiMode;
   answers?: PlanBasis;
 } | null>(null);
 const generationNote = ref('');
@@ -91,9 +97,16 @@ const shoppingFilter = ref<ShoppingFilter>('all');
 const shoppingUpdateStatus = ref<'idle' | 'updating' | 'done' | 'error'>('idle');
 const shoppingUpdateError = ref('');
 const lastBought = ref<{ itemId: string; pantryItemId?: string; previousStatus: 'open' | 'bought' } | null>(null);
+interface MealEditBatch {
+  date: string;
+  oldMeal: { idea: string; ingredients: string[] };
+  newMeal: { idea: string; ingredients: string[] };
+  request: DietAiRequest;
+}
+
 let shoppingUpdateTimer: ReturnType<typeof setTimeout> | null = null;
-let shoppingUpdateBatch: Array<{ date: string; oldMeal: { idea: string; ingredients: string[] }; newMeal: { idea: string; ingredients: string[] } }> = [];
-let lastShoppingUpdateBatch: Array<{ date: string; oldMeal: { idea: string; ingredients: string[] }; newMeal: { idea: string; ingredients: string[] } }> = [];
+let shoppingUpdateBatch: MealEditBatch[] = [];
+let lastShoppingUpdateBatch: MealEditBatch[] = [];
 let shoppingUpdateUndoSnapshot: ShoppingItem[] | null = null;
 let initialized = false;
 let watchReady = false;
@@ -213,6 +226,7 @@ async function rememberAnswers(
   const answers: DayPlanAnswers = {
     pantry: cleanNames(basis.pantry, 40),
     wants: cleanNames(basis.wants, 16),
+    appetite: basis.appetite,
     scope,
     savePantry,
     updatedAt: Date.now(),
@@ -272,24 +286,24 @@ function pantryFor(dates: string[], basis?: PlanBasis): string[] {
   );
 }
 
-/** Keeps ate / ate-other / skipped markers when a plan is regenerated. */
+/** Eaten, skipped and edited meals are immutable across generation. */
 function carryStatuses(next: RangePlan): RangePlan {
   return {
     ...next,
     days: next.days.map((day) => {
       const previous = data.value.dayPlans[day.date];
       if (!previous) return day;
-      const bySlot = new Map(previous.meals.map((meal) => [meal.slot, meal.status] as const));
-      return {
-        ...day,
-        meals: day.meals.map((meal) => ({
-          ...meal,
-          status: bySlot.get(meal.slot) ?? meal.status,
-        })),
-      };
+      const keep = previous.meals.filter((meal) =>
+        meal.status === 'ate' || meal.status === 'ate-other'
+        || meal.status === 'skipped' || meal.source === 'user' || !!meal.editedAt);
+      const keptSlots = new Set(keep.map((meal) => meal.slot));
+      const fresh = day.meals.filter((meal) => !keptSlots.has(meal.slot));
+      return { ...day, meals: [...fresh, ...keep].sort((a, b) => MEAL_SLOT_ORDER.indexOf(a.slot) - MEAL_SLOT_ORDER.indexOf(b.slot)) };
     }),
   };
 }
+
+const MEAL_SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 
 async function applyPlan(range: DietRange, next: RangePlan, basis?: PlanBasis): Promise<void> {
   const applied = range === 'today'
@@ -333,12 +347,13 @@ async function offline(range: DietRange, message?: string): Promise<void> {
     : message ?? 'AI ideas are off. Showing general food ideas.';
 }
 
-async function generate(range: DietRange): Promise<void> {
+async function generate(range: DietRange, mode: DietAiMode = 'generate'): Promise<void> {
   const request = buildRequest(range);
   if (request.alarmingSymptoms) {
     await applyPlan(range, emergencyRangePlan(request));
     status.value = 'ready';
     statusText.value = 'Please seek urgent help before planning meals.';
+    canRetryGeneration.value = false;
     return;
   }
   if (!data.value.consentGiven) {
@@ -346,25 +361,39 @@ async function generate(range: DietRange): Promise<void> {
     return;
   }
 
+  const aiRequest = buildDietAiRequest({
+    mode,
+    sources: {
+      contexts: request.contexts,
+      state: planner.state.value,
+      preferences: preferences.value,
+      pantry: request.pantry,
+      recentMeals: recentDietMeals(new Date()),
+      keepMeals: keptMealsFor(request.dates),
+      shoppingNames: (request.currentShopping ?? []).map((item) => item.name),
+      facts,
+      wantsByDate: wantsByDateFor(request.dates),
+      appetiteByDate: appetiteByDateFor(request.dates),
+    },
+  });
   status.value = 'loading';
   statusText.value = range === 'week' ? 'Writing seven days of meal ideas…' : 'Writing your meal ideas…';
   errorText.value = '';
+  canRetryGeneration.value = false;
   try {
-    const raw = await api.requestRangeSuggestion(request, facts);
+    const raw = await api.requestDietPlan(aiRequest);
     const result = parseRangePlan(raw, facts, request, preferences.value);
     if (!result.plan) throw new Error(result.error || 'The AI response could not be used.');
     await applyPlan(range, result.plan);
     status.value = 'ready';
     statusText.value = 'Written from your curated thyroid facts and what you have at home.';
+    lastFailedAiRequest = null;
   } catch (error) {
     errorText.value = detailOf(error);
-    const previous = data.value.plans[range];
-    if (previous) {
-      status.value = 'offline';
-      statusText.value = `Could not reach the AI. Showing your last ${RANGE_LABELS[range].toLowerCase()} plan.`;
-    } else {
-      await offline(range, `Could not reach the AI. Showing general food ideas.`);
-    }
+    lastFailedAiRequest = aiRequest;
+    canRetryGeneration.value = true;
+    status.value = 'error';
+    statusText.value = 'Could not update the plan. Your existing plan is unchanged.';
   }
 }
 
@@ -400,6 +429,82 @@ function buildRequestForDates(dates: string[], range: DietRange, answers?: PlanB
   };
 }
 
+function recentDietMeals(now: Date): DietAiRequest['recentMeals'] {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 4, 12);
+  const first = keyOf(start);
+  return [...data.value.log]
+    .filter((entry) => entry.date >= first && entry.date <= keyOf(now))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-20)
+    .map((entry) => ({
+      date: entry.date,
+      meal: entry.slot,
+      status: entry.status,
+      name: entry.text.replace(/\s+/g, ' ').trim().slice(0, 80),
+    }));
+}
+
+function keptMealsFor(dates: string[]): DietAiRequest['keepMeals'] {
+  const targets = new Set(dates);
+  return Object.entries(data.value.dayPlans)
+    .filter(([date]) => targets.has(date))
+    .flatMap(([date, plan]) => plan.meals
+      .filter((meal) => meal.status === 'ate' || meal.status === 'ate-other'
+        || meal.status === 'skipped' || meal.source === 'user' || !!meal.editedAt)
+      .map((meal) => ({
+        date,
+        slot: meal.slot,
+        idea: meal.idea,
+        ingredients: [...(meal.ingredients ?? [])],
+        status: (meal.status === 'skipped' ? 'skipped'
+          : meal.source === 'user' || !!meal.editedAt ? 'edited' : 'ate') as DietAiRequest['keepMeals'][number]['status'],
+      })));
+}
+
+function wantsByDateFor(dates: string[], answers?: PlanBasis): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  dates.forEach((date) => {
+    const saved = data.value.dayAnswers[date];
+    result[date] = cleanNames(saved?.wants ?? answers?.wants ?? data.value.wants[rangeForDate(date)], 16);
+  });
+  return result;
+}
+
+function appetiteByDateFor(dates: string[], answers?: PlanBasis): Record<string, Appetite> {
+  const result: Record<string, Appetite> = {};
+  dates.forEach((date) => {
+    const appetite = data.value.dayAnswers[date]?.appetite ?? answers?.appetite;
+    if (appetite) result[date] = appetite;
+  });
+  return result;
+}
+
+function buildAiRequestForDates(
+  dates: string[],
+  range: DietRange,
+  answers?: PlanBasis,
+  mode: DietAiMode = 'generate',
+  changedMeal?: DietAiRequest['changedMeal'],
+): DietAiRequest {
+  const request = buildRequestForDates(dates, range, answers);
+  return buildDietAiRequest({
+    mode,
+    sources: {
+      contexts: request.contexts,
+      state: planner.state.value,
+      preferences: preferences.value,
+      pantry: request.pantry,
+      recentMeals: recentDietMeals(new Date()),
+      keepMeals: keptMealsFor(request.dates),
+      changedMeal: changedMeal ?? null,
+      shoppingNames: (request.currentShopping ?? []).map((item) => item.name),
+      facts,
+      wantsByDate: wantsByDateFor(request.dates, answers),
+      appetiteByDate: appetiteByDateFor(request.dates, answers),
+    },
+  });
+}
+
 async function offlineForDates(
   dates: string[],
   range: DietRange,
@@ -426,6 +531,9 @@ async function runPendingGeneration(): Promise<string> {
   if (!request.dates.length) return 'No days in this week are inside the planning window.';
   const note = pending.note
     || (pending.showClipping ? clippedPlanMessage(request.dates.length, 7) : '');
+  const aiRequest = buildAiRequestForDates(
+    pending.dates, pending.range, pending.answers, pending.mode,
+  );
 
   generatingDates.value = pending.dates;
   try {
@@ -433,6 +541,7 @@ async function runPendingGeneration(): Promise<string> {
       await applyPlan(pending.range, emergencyRangePlan(request), pending.answers);
       status.value = 'ready';
       statusText.value = 'Please seek urgent help before planning meals.';
+      canRetryGeneration.value = false;
       generationNote.value = note;
       return note;
     }
@@ -447,21 +556,21 @@ async function runPendingGeneration(): Promise<string> {
       ? 'Writing your meal ideas…'
       : `Writing ${request.dates.length} days of meal ideas…`;
     errorText.value = '';
+    canRetryGeneration.value = false;
     try {
-      const raw = await api.requestRangeSuggestion(request, facts);
+      const raw = await api.requestDietPlan(aiRequest);
       const result = parseRangePlan(raw, facts, request, preferences.value);
       if (!result.plan) throw new Error(result.error || 'The AI response could not be used.');
       await applyPlan(pending.range, result.plan, pending.answers);
       status.value = 'ready';
       statusText.value = 'Written from your curated thyroid facts and what you have at home.';
+      lastFailedAiRequest = null;
     } catch (error) {
       errorText.value = detailOf(error);
-      await offlineForDates(
-        pending.dates,
-        pending.range,
-        'Could not reach the AI. Showing general food ideas.',
-        pending.answers,
-      );
+      lastFailedAiRequest = aiRequest;
+      canRetryGeneration.value = true;
+      status.value = 'error';
+      statusText.value = 'Could not update the plan. Your existing plan is unchanged.';
     }
     generationNote.value = note;
     return note;
@@ -480,8 +589,12 @@ async function generateForDates(
   const unique = [...new Set(dates)].filter((date) => isDatePlannable(date)).sort();
   if (!unique.length) return 'Those days are outside the planning window.';
 
-  const answers = options.pantry || options.wants
-    ? { pantry: cleanNames(options.pantry, 40), wants: cleanNames(options.wants, 16) }
+  const answers = options.pantry || options.wants || options.appetite
+    ? {
+        pantry: cleanNames(options.pantry, 40),
+        wants: cleanNames(options.wants, 16),
+        appetite: options.appetite,
+      }
     : undefined;
   if (answers) {
     if (options.savePantry) await applyPantryDraft(answers.pantry);
@@ -498,6 +611,7 @@ async function generateForDates(
     range,
     note,
     showClipping: range === 'week' && unique.length > 1,
+    mode: options.mode ?? 'generate',
     answers,
   };
   generationNote.value = '';
@@ -518,18 +632,35 @@ async function generateForDate(date: string, options: GenerateOptions = {}): Pro
   return generateForDates([date], rangeForDate(date), '', { ...options, scope: 'day' });
 }
 
-/** Internal regeneration after an actual-meal change; never prompts for consent. */
-async function regenerateDates(dates: string[]): Promise<void> {
-  const unique = [...new Set(dates)].filter((date) => isDatePlannable(date)).sort();
-  if (!unique.length) return;
-  const groups = new Map<DietRange, string[]>();
-  unique.forEach((date) => {
-    const range = rangeForDate(date);
-    groups.set(range, [...(groups.get(range) ?? []), date]);
-  });
-  for (const [range, group] of groups) {
-    pendingGeneration.value = { dates: group, range, note: '', showClipping: false };
-    await runPendingGeneration();
+/** Regeneration is always explicit; actual-meal changes only mark the plan stale. */
+async function askToRegenerate(dates: string[]): Promise<void> {
+  if (!dates.length) return;
+  planStaleNote.value = 'Your meals or check-in changed. Regenerate?';
+}
+
+async function retryGeneration(): Promise<void> {
+  if (!lastFailedAiRequest) return;
+  const request = lastFailedAiRequest;
+  lastFailedAiRequest = null;
+  canRetryGeneration.value = false;
+  const range = activeRange.value;
+  status.value = 'loading';
+  statusText.value = 'Retrying your meal ideas…';
+  errorText.value = '';
+  try {
+    const raw = await api.requestDietPlan(request);
+    const fallbackRequest = buildRequest(range);
+    const result = parseRangePlan(raw, facts, fallbackRequest, preferences.value);
+    if (!result.plan) throw new Error(result.error || 'The AI response could not be used.');
+    await applyPlan(range, result.plan);
+    status.value = 'ready';
+    statusText.value = 'Written from your curated thyroid facts and what you have at home.';
+  } catch (error) {
+    errorText.value = detailOf(error);
+    lastFailedAiRequest = request;
+    canRetryGeneration.value = true;
+    status.value = 'error';
+    statusText.value = 'Could not update the plan. Your existing plan is unchanged.';
   }
 }
 
@@ -597,7 +728,8 @@ async function regenerate(range: DietRange = activeRange.value): Promise<void> {
     statusText.value = 'Choose AI or general ideas in the day panel before generating.';
     return;
   }
-  await generate(range);
+  planStaleNote.value = '';
+  await generate(range, 'regenerate');
 }
 
 async function allowConsent(): Promise<void> {
@@ -849,34 +981,28 @@ async function flushShoppingUpdate(): Promise<void> {
   shoppingUpdateStatus.value = 'updating';
   shoppingUpdateError.value = '';
   try {
-    const currentShopping = shoppingForDates(dates).map((item) => ({
-      name: item.name, status: item.status, inPlan: item.inPlan,
-    }));
-    const result = await api.requestShoppingUpdate({
-      edits: batch.map((entry) => ({ oldMeal: entry.oldMeal, newMeal: entry.newMeal })),
-      pantry: data.value.pantry.map((item) => item.name),
-      currentShopping,
-      allergies: [],
-      avoidFoods: preferences.value.avoid.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean),
-    });
-    await applyShoppingDeltaToDates(dates, result.add, result.remove);
+    const requests = batch.map((entry) => entry.request);
+    const primary = requests[0];
+    if (!primary) return;
+    const result = await api.requestMealEditIngredients(primary);
+    const oldIngredients = new Set(batch.flatMap((entry) => entry.oldMeal.ingredients.map((name) => name.toLowerCase())));
+    const newIngredients = new Set(batch.flatMap((entry) => entry.newMeal.ingredients.map((name) => name.toLowerCase())));
+    const remove = [...oldIngredients].filter((name) => !newIngredients.has(name));
+    await applyShoppingDeltaToDates(dates, result.add, remove);
     shoppingUpdateStatus.value = 'done';
   } catch (error) {
-    // fallback: if ingredients were entered, add missing ones locally
     const pantryNames = data.value.pantry.map((item) => item.name.toLowerCase());
     const fallbackAdd = batch.flatMap((entry) => entry.newMeal.ingredients)
       .map((name) => name.replace(/\s+/g, ' ').trim().slice(0, 80))
       .filter((name) => name && !pantryNames.includes(name.toLowerCase()));
-    if (fallbackAdd.length) {
-      await applyShoppingDeltaToDates(dates, fallbackAdd, []);
-    }
+    if (fallbackAdd.length) await applyShoppingDeltaToDates(dates, fallbackAdd, []);
     shoppingUpdateStatus.value = 'error';
     shoppingUpdateError.value = detailOf(error) || 'Could not update the shopping list';
   }
 }
 
-function queueShoppingUpdate(date: string, oldMeal: { idea: string; ingredients: string[] }, newMeal: { idea: string; ingredients: string[] }): void {
-  shoppingUpdateBatch.push({ date, oldMeal, newMeal });
+function queueShoppingUpdate(entry: MealEditBatch): void {
+  shoppingUpdateBatch.push(entry);
   shoppingUpdateStatus.value = 'updating';
   shoppingUpdateError.value = '';
   if (shoppingUpdateTimer) clearTimeout(shoppingUpdateTimer);
@@ -909,14 +1035,7 @@ function pushActual(entry: Omit<ActualEntry, 'id' | 'createdAt' | 'updatedAt'>):
 async function adjustForActual(dates: string[]): Promise<void> {
   await persist();
   if (status.value === 'loading') return;
-  await regenerateDates(dates);
-
-  // Food eaten today also changes what is left at home tomorrow.
-  const now = new Date();
-  const tomorrow = keyOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12));
-  if (dates.includes(todayContext.value.date) && data.value.dayPlans[tomorrow]) {
-    await regenerateDates([tomorrow]);
-  }
+  await askToRegenerate(dates);
 }
 
 function findMealDate(mealId: string): string {
@@ -926,22 +1045,15 @@ function findMealDate(mealId: string): string {
   return '';
 }
 
+/** Local alternative only; AI editMeal never returns a new meal idea. */
 async function suggestMealAlternative(date: string, mealId: string): Promise<{ idea: string; ingredients: string[]; prepMinutes: number } | null> {
   const stored = data.value.dayPlans[date];
   const meal = stored?.meals.find((item) => item.id === mealId);
-  if (!meal) return null;
-  try {
-    return await api.requestMealAlternative({
-      slot: meal.slot,
-      currentIdea: meal.idea,
-      currentIngredients: meal.ingredients ?? [],
-      allergies: [],
-      avoidFoods: preferences.value.avoid.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean),
-      pantry: data.value.pantry.map((item) => item.name),
-    });
-  } catch {
-    return null;
-  }
+  if (!meal || meal.slot === 'snack') return null;
+  const context = data.value.dayPlans[date]?.context ?? todayContext.value;
+  const alternative = heuristicMeal(meal.slot, context, preferences.value);
+  if (alternative.idea === meal.idea) return null;
+  return { idea: alternative.idea, ingredients: alternative.ingredients ?? [], prepMinutes: alternative.prepMinutes };
 }
 
 async function editMealForDate(
@@ -980,8 +1092,20 @@ async function editMealForDate(
     return;
   }
 
+  const changedMeal: DietAiRequest['changedMeal'] = {
+    date,
+    slot: meal.slot,
+    old: { idea: meal.idea, ingredients: oldMeal.ingredients, prepMinutes: meal.prepMinutes },
+    new: { idea: cleanIdea, ingredients: cleanIngredients, prepMinutes: prep },
+  };
+  const request = buildAiRequestForDates([date], rangeForDate(date), undefined, 'editMeal', changedMeal);
   await persist();
-  queueShoppingUpdate(date, oldMeal, { idea: cleanIdea, ingredients: cleanIngredients });
+  queueShoppingUpdate({
+    date,
+    oldMeal,
+    newMeal: { idea: cleanIdea, ingredients: cleanIngredients },
+    request,
+  });
 }
 
 async function markMealAt(
@@ -1080,13 +1204,18 @@ function selectFact(id: string): void {
   selectedFactId.value = id;
 }
 
-/* A saved check-in changes energy: do not regenerate; prompt the user. */
+/* Energy or symptom changes never regenerate silently; the user must ask. */
 watch(
-  () => [planner.checkIn.value?.at ?? 0, planner.energy.value] as const,
+  () => [
+    planner.checkIn.value?.at ?? 0,
+    planner.energy.value,
+    (planner.checkIn.value?.symptomEntries ?? []).map((entry) => `${entry.name}:${entry.severity}`).join('|'),
+    planner.checkIn.value?.symptoms ?? '',
+  ] as const,
   (next, previous) => {
     if (!watchReady || !data.value.plans.today) return;
-    if (next[0] === previous[0] && next[1] === previous[1]) return;
-    planStaleNote.value = 'Your energy changed since this plan was made. Regenerate?';
+    if (next.every((value, index) => value === previous[index])) return;
+    planStaleNote.value = 'Your energy or symptoms changed. Regenerate?';
   },
 );
 
@@ -1111,6 +1240,8 @@ export function useDiet() {
     status,
     statusText,
     errorText,
+    canRetryGeneration,
+    retryGeneration,
     generationNote,
     planStaleNote,
     consentChoice,

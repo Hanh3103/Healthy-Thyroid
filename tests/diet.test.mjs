@@ -42,7 +42,7 @@ test('busyness uses the 2h and 5h boundaries', () => {
   assert.equal(computeBusyness(301), 'packed');
 });
 
-test('context counts today tasks plus habit minutes and honours overrides', () => {
+test('context counts today tasks plus habit minutes without Profile overrides', () => {
   const state = {
     energy: 2,
     tasks: [
@@ -61,11 +61,23 @@ test('context counts today tasks plus habit minutes and honours overrides', () =
   assert.equal(context.taskCount, 2);
   assert.equal(context.totalMinutes, 65);
   assert.equal(context.busyness, 'light');
-  assert.equal(buildDietContext(state, 2, { ...DEFAULT_PREFERENCES, busynessOverride: 'packed' }, now).busyness, 'packed');
+  const withStaleOverrides = buildDietContext(state, 2, {
+    ...DEFAULT_PREFERENCES,
+    energyOverride: 'high',
+    busynessOverride: 'packed',
+  }, now);
+  assert.equal(withStaleOverrides.energy, 'medium', 'energy comes from Daily Check-in, not Profile');
+  assert.equal(withStaleOverrides.busyness, 'light', 'busyness comes from tasks and habits, not Profile');
 });
 
 test('prompt carries the rules, curated facts and only the needed inputs', () => {
-  const input = buildDietInput(lowPacked, { ...DEFAULT_PREFERENCES, avoid: 'peanuts', diet: 'vegetarian' }, false);
+  const input = buildDietInput(lowPacked, {
+    ...DEFAULT_PREFERENCES,
+    allergies: 'peanuts',
+    avoidFoods: 'sesame',
+    dietPreferences: 'vegetarian',
+    cookingMinutes: 20,
+  }, false);
   const prompt = buildDietPrompt(input, facts);
 
   assert.ok(prompt.startsWith(DIET_SYSTEM_PROMPT));
@@ -73,11 +85,15 @@ test('prompt carries the rules, curated facts and only the needed inputs', () =>
   assert.match(prompt, /factIds/);
   assert.match(prompt, /"id":"T8"/);
   assert.match(prompt, /"energy":"low"/);
-  assert.match(prompt, /"avoid":"peanuts"/);
+  assert.match(prompt, /"allergies":"peanuts"/);
+  assert.match(prompt, /"avoidFoods":"sesame"/);
+  assert.match(prompt, /"dietPreferences":"vegetarian"/);
+  assert.match(prompt, /"cookingMinutes":20/);
   const today = JSON.parse(prompt.split('\nTODAY:\n')[1]);
   assert.deepEqual(Object.keys(today), [
     'date', 'energy', 'busyness', 'totalMinutes', 'taskCount', 'preferences', 'alarmingSymptoms',
   ]);
+  assert.deepEqual(today.preferences, input.preferences);
   assert.equal(today.alarmingSymptoms, false);
 });
 
@@ -101,7 +117,9 @@ test('AI JSON is validated: fences stripped, unknown facts dropped, meals comple
   assert.deepEqual(result.plan.meals[0].factIds, ['T1']);
   const coffeeNote = result.plan.timingNotes.find((note) => /coffee/i.test(note.text));
   assert.deepEqual(coffeeNote.factIds, ['T2']);
-  assert.ok(result.plan.timingNotes.some((note) => note.factIds.includes('T1')));
+  assert.ok(result.plan.timingNotes.some((note) =>
+    /^Breakfast: 08:00$/.test(note.text) && note.factIds.length === 0));
+  assert.equal(result.plan.timingNotes.some((note) => note.factIds.includes('T1')), false);
 });
 
 test('medical claims are rejected and alarming symptoms force an urgent plan', () => {
@@ -132,13 +150,18 @@ test('urgent AI responses replace the meals with emergency guidance', () => {
 });
 
 test('packed/low fallback keeps every meal at 10 minutes or less', () => {
-  const plan = heuristicDietPlan(lowPacked, { ...DEFAULT_PREFERENCES, maxCookMinutes: 60 });
+  const plan = heuristicDietPlan(lowPacked, { ...DEFAULT_PREFERENCES, cookingMinutes: 60 });
   assert.equal(plan.source, 'offline');
   assert.deepEqual(plan.meals.map((meal) => meal.slot), ['breakfast', 'lunch', 'dinner', 'snack']);
   assert.ok(plan.meals.every((meal) => meal.prepMinutes <= 10));
   assert.match(plan.summary, /Packed day, low energy: keep it simple/);
   assert.match(plan.summary, /water/);
-  assert.deepEqual(buildTimingNotes(DEFAULT_PREFERENCES).map((note) => note.factIds[0]), ['T1', 'T2', 'T3', 'T4']);
+  const timing = buildTimingNotes(DEFAULT_PREFERENCES);
+  assert.deepEqual(timing.map((note) => note.text), [
+    'Breakfast: 08:00', 'Lunch: 12:30', 'Dinner: 18:30',
+  ]);
+  assert.ok(timing.every((note) => note.factIds.length === 0));
+  assert.ok(timing.every((note) => !/supplement|vitamin|dose|advice|doctor/i.test(note.text)));
 });
 
 test('light/high fallback allows cooking and adds a meal-prep idea', () => {
@@ -148,17 +171,28 @@ test('light/high fallback allows cooking and adds a meal-prep idea', () => {
 });
 
 test('allergies and preferences are respected in fallback ideas', () => {
-  const noPeanuts = heuristicDietPlan(lowPacked, { ...DEFAULT_PREFERENCES, avoid: 'peanuts' });
+  const noPeanuts = heuristicDietPlan(lowPacked, { ...DEFAULT_PREFERENCES, avoidFoods: 'peanuts' });
   assert.ok(noPeanuts.meals.every((meal) => !/peanut/i.test(meal.idea)));
-  const vegetarian = heuristicDietPlan(highLight, { ...DEFAULT_PREFERENCES, diet: 'vegetarian' });
+  const vegetarian = heuristicDietPlan(highLight, {
+    ...DEFAULT_PREFERENCES, dietPreferences: 'vegetarian',
+  });
   assert.ok(vegetarian.meals.every((meal) => !/\b(fish|chicken|turkey|salmon)\b/i.test(meal.idea)));
 });
 
 test('stored preferences and plans are normalized safely', () => {
-  const prefs = normalizePreferences({ medicationTime: '7:00', avoid: 'peanuts', maxCookMinutes: 9999, energyOverride: 'huge' });
+  const prefs = normalizePreferences({
+    medicationTime: '7:00', allergies: 'peanuts', cookingMinutes: 9999,
+  });
   assert.equal(prefs.medicationTime, '07:00');
-  assert.equal(prefs.maxCookMinutes, 240);
-  assert.equal(prefs.energyOverride, '');
+  assert.equal(prefs.allergies, 'peanuts');
+  assert.equal(prefs.cookingMinutes, 240);
+  assert.equal('energyOverride' in prefs, false);
+  assert.equal('busynessOverride' in prefs, false);
+  const legacy = normalizePreferences({ diet: 'vegetarian', avoid: 'sesame', maxCookMinutes: 45 });
+  assert.equal(legacy.dietPreferences, 'vegetarian');
+  assert.equal(legacy.allergies, 'sesame');
+  assert.equal(legacy.avoidFoods, 'sesame');
+  assert.equal(legacy.cookingMinutes, 45);
 
   const stored = normalizeDietData({
     preferences: prefs,

@@ -894,6 +894,28 @@ h1 {
   font-family: var(--font-geist-mono);
 }
 
+.ai-status-line.ai-status-warning {
+  color: var(--ink-2);
+}
+
+#ai-config-chip.ai-ready {
+  background: color-mix(in srgb, var(--ok, #2f855a) 14%, transparent);
+  color: var(--ok, #2f855a);
+  font-weight: var(--font-weight-semibold);
+}
+
+#ai-config-chip.ai-missing {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+#ai-config-chip.ai-unknown {
+  background: transparent;
+  border: 1px dashed var(--line);
+}
+
 #plan-note {
   margin-bottom: 6px;
 }

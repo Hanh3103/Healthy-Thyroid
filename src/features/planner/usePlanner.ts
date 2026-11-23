@@ -15,6 +15,7 @@ import {
   cycleTaskUrgency,
   DEFAULT_HABITS,
   editTask,
+  fitsEnergy,
   isCheckInLocked,
   isTodayTask,
   matchesDumpFilter,
@@ -39,13 +40,13 @@ import {
 } from './model';
 import { recommendedAiReason } from './checkin';
 import { requestCheckInSuggestion } from './checkinAi';
-import { loadPlanner, savePlanner } from './api';
-import { localLoad, localSave } from '../../shared/platform';
+import { describeAiConfig, unknownAiConfig, type AiConfigView } from './aiConfigStatus';
+import { loadPlanner, requestAiPrioritization, savePlanner } from './api';
+import { isTauri, localLoad, localSave } from '../../shared/platform';
 import { keyOf } from '../../shared/utils';
 import { requestConfirm } from '../../shared/ui/useConfirm';
 import { removeHabitConfirm } from '../../shared/ui/confirmCopy';
-import { createAITextProvider } from '../../shared/ai/client';
-import { useAiStore } from '../../stores/ai';
+import { getAiCredentialsStatus } from '../profile/api';
 import {
   buildPrompt,
   estimateHeuristic,
@@ -64,6 +65,7 @@ const state = ref<AppState>(seedState());
 const initialised = ref(false);
 
 const dumpFilter = ref<DumpFilter>('all');
+const aiConfig = ref<AiConfigView>(unknownAiConfig());
 const aiStatus = ref('');
 const backupStatus = ref('');
 const backupText = ref('');
@@ -140,6 +142,14 @@ const openTasks = computed(() => state.value.tasks.filter((task) => !task.done))
 const todayTasks = computed(() => openTasks.value.filter(isTodayTask));
 const visibleTodayTasks = computed(() => tasksForEnergy(todayTasks.value, state.value.energy));
 const deferredTaskCount = computed(() => todayTasks.value.length - visibleTodayTasks.value.length);
+const movedToDumps = computed(() => state.value.tasks.filter((task) => task.movedFromToday && !task.done));
+const movedToDumpsNote = computed(() => {
+  const count = movedToDumps.value.length;
+  if (!count) return '';
+  const single = count === 1;
+  const names = movedToDumps.value.map((task) => task.title).join(', ');
+  return `${single ? 'This task was' : 'These tasks were'} moved here because ${single ? 'it needs' : 'they need'} more energy than today's level: ${names}. Use Move to Today to bring ${single ? 'it' : 'them'} back.`;
+});
 const nowTasks = computed(() => orderNow(
   [...visibleTodayTasks.value],
   state.value.plan,
@@ -188,15 +198,51 @@ const nowMeta = computed(() => {
 /* Persistence                                                                */
 /* -------------------------------------------------------------------------- */
 
+/** Keeps the AI Prioritize chip in sync with the key-free credentials status. */
+async function refreshAiConfig(): Promise<AiConfigView> {
+  if (!isTauri()) {
+    aiConfig.value = describeAiConfig(null, false);
+    return aiConfig.value;
+  }
+  try {
+    aiConfig.value = describeAiConfig(await getAiCredentialsStatus(), true);
+  } catch {
+    aiConfig.value = unknownAiConfig();
+  }
+  return aiConfig.value;
+}
+
 async function init(): Promise<void> {
   if (initialised.value) return;
   state.value = await loadPlanner();
+  // Saved tasks can carry an old energy estimate. Park mismatches on load so
+  // they appear in Dumps instead of vanishing from both lists.
+  if (parkEnergyMismatchedTasks().length) persist();
   syncCheckInForm();
+  await refreshAiConfig();
   initialised.value = true;
 }
 
 function persist(): void {
   void savePlanner(state.value);
+}
+
+/**
+ * Moves Today tasks whose saved estimate does not fit the current energy back
+ * to Dumps. Called on load, day rollover, check-in and prioritization so no
+ * saved task is ever hidden by an energy filter.
+ */
+function parkEnergyMismatchedTasks(): Task[] {
+  const moved: Task[] = [];
+  state.value.tasks.forEach((task) => {
+    if (task.done || !isTodayTask(task) || fitsEnergy(task.fit, state.value.energy)) return;
+    // "Not Today" means out of the Today selector: not urgent and not dated.
+    task.imp = 3;
+    task.due = '';
+    task.movedFromToday = true;
+    moved.push(task);
+  });
+  return moved;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -269,6 +315,7 @@ function saveCheckIn(): void {
     source: acceptedAi ? 'ai' : 'manual',
     at: Date.now(),
   };
+  parkEnergyMismatchedTasks();
   persist();
   syncCheckInForm();
   checkInForm.value.status = 'Saved. Today is locked — use Edit check-in to change it.';
@@ -524,7 +571,8 @@ function restoreBackup(): void {
 /* AI prioritisation                                                          */
 /* -------------------------------------------------------------------------- */
 
-function applyResult(result: PrioritizeResult): void {
+/** Applies estimates and returns tasks moved back to Dumps for energy reasons. */
+function applyResult(result: PrioritizeResult): Task[] {
   const byId = new Map(state.value.tasks.map((task) => [task.id, task]));
   result.ranked.forEach((ranked) => {
     const task = byId.get(ranked.id);
@@ -543,39 +591,54 @@ function applyResult(result: PrioritizeResult): void {
       minutes: subtask.minutes,
       energy: subtask.energy,
     }));
+
+    if (fitsEnergy(ranked.fit, result.energy)) task.movedFromToday = false;
   });
   state.value.plan = {
     energy: result.energy,
-    order: result.ranked.map((ranked) => ranked.id),
+    order: result.ranked
+      .filter((ranked) => fitsEnergy(ranked.fit, result.energy))
+      .map((ranked) => ranked.id),
     at: Date.now(),
   };
+  const moved = parkEnergyMismatchedTasks();
   persist();
+  return moved;
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('The AI took too long. Try again.')), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
+const taskWord = (count: number): string => (count === 1 ? 'task' : 'tasks');
+
+/** Local estimates are only a fallback; they are never tried before the AI. */
+function prioritizeLocally(inputs: TaskInput[], energy: Energy, today: string): PrioritizeResult {
+  const estimates = new Map(inputs.map((task) => [task.id, estimateHeuristic(task)]));
+  return rankTasks(inputs, estimates, energy, today);
 }
 
+/** Applies a result and explains any tasks moved to Dumps for energy reasons. */
+function finishPrioritization(result: PrioritizeResult, summary: string): void {
+  const moved = applyResult(result);
+  const movedNote = moved.length
+    ? ` ${moved.length} ${taskWord(moved.length)} needing more energy ${moved.length === 1 ? 'was' : 'were'} moved to Dumps: ${moved.map((task) => task.title).join(', ')}.`
+    : '';
+  aiStatus.value = `${summary}${movedNote}`;
+}
+
+/**
+ * Tries the configured desktop AI first. Local estimates are used only when AI
+ * is unavailable, fails, or returns incomplete data, and the status always
+ * says which path ran and why.
+ */
 async function prioritize(): Promise<void> {
+  aiStatus.value = 'Checking AI configuration...';
+  const config = await refreshAiConfig();
   const energyValue = state.value.energy as Energy;
   const today = keyOf(new Date());
   const todayOpen = state.value.tasks.filter(
     (task) => !task.done && (task.imp === 4 || (!!task.due && task.due <= today)),
   );
+
   if (!todayOpen.length) {
-    aiStatus.value = 'No tasks marked for today.';
+    aiStatus.value = `No tasks marked for today.${config.note}`;
     return;
   }
 
@@ -585,37 +648,33 @@ async function prioritize(): Promise<void> {
     due: task.due || '',
   }));
 
-  const store = useAiStore();
-  const config = store.config;
-  const configured = !!config.endpoint && !!config.model
-    && (config.provider === 'ollama' || !!config.apiKey);
-
-  if (!configured) {
-    applyResult(rankTasks(inputs, new Map(), energyValue, today));
-    aiStatus.value = 'Heuristic estimates used: AI is not configured. Add your key in Profile > AI Settings.';
+  if (!config.configured) {
+    finishPrioritization(
+      prioritizeLocally(inputs, energyValue, today),
+      `AI could not be used: ${config.note.trim()} Local estimates used instead.`,
+    );
     return;
   }
 
-  aiStatus.value = 'Asking AI...';
   try {
-    const weekday = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
-    const raw = await withTimeout(
-      createAITextProvider(config).complete(buildPrompt(inputs, energyValue, today, weekday)),
-      90_000,
-    );
+    const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' });
+    const raw = await requestAiPrioritization(buildPrompt(inputs, energyValue, today, weekday));
     const { estimates, missing } = parseEstimates(raw, inputs.map((task) => task.id));
-    missing.forEach((id) => {
-      const task = inputs.find((item) => item.id === id);
-      if (task) estimates.set(id, estimateHeuristic(task));
-    });
-    applyResult(rankTasks(inputs, estimates, energyValue, today));
-    aiStatus.value = missing.length
-      ? `Heuristic estimates used for ${missing.length} task(s): the AI skipped them.`
-      : 'AI estimates used. Today tasks prioritized.';
+    if (!estimates.size) throw new Error('the AI returned no usable estimates');
+
+    const partial = missing.length
+      ? ` ${missing.length} ${taskWord(missing.length)} had no AI estimate and used local ones.`
+      : '';
+    finishPrioritization(
+      rankTasks(inputs, estimates, energyValue, today),
+      `AI estimates used for ${estimates.size} of ${inputs.length} ${taskWord(inputs.length)}.${config.note}${partial}`,
+    );
   } catch (error) {
-    console.error('AI prioritization error:', error);
-    applyResult(rankTasks(inputs, new Map(), energyValue, today));
-    aiStatus.value = `Heuristic estimates used: ${error instanceof Error ? error.message : String(error)}.`;
+    const reason = error instanceof Error ? error.message : String(error);
+    finishPrioritization(
+      prioritizeLocally(inputs, energyValue, today),
+      `AI prioritization failed: ${reason} Local estimates used instead.`,
+    );
   }
 }
 
@@ -634,6 +693,7 @@ function checkDay(): void {
     }
     state.value.energy = state.value.energyHistory[key] ?? 2;
     state.value.energyDay = key;
+    parkEnergyMismatchedTasks();
     syncCheckInForm();
     persist();
   }
@@ -645,6 +705,7 @@ export function usePlanner() {
     state,
     energy,
     dumpFilter,
+    aiConfig,
     aiStatus,
     backupStatus,
     backupText,
@@ -658,6 +719,8 @@ export function usePlanner() {
     checkIn,
     checkInLocked,
     deferredTaskCount,
+    movedToDumps,
+    movedToDumpsNote,
     energyCalendar,
     energyWeek,
     energySummary,
@@ -704,6 +767,7 @@ export function usePlanner() {
     copyBackup,
     restoreBackup,
     prioritize,
+    refreshAiConfig,
     checkDay,
   };
 }

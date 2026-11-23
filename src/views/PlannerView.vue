@@ -24,7 +24,9 @@ const {
   doneTasks,
   hasExamples,
   dumpFilter,
+  aiConfig,
   aiStatus,
+  movedToDumpsNote,
   planNote,
   nowMeta,
 } = planner;
@@ -41,6 +43,9 @@ let dayInterval: number | undefined;
 
 onMounted(async () => {
   await planner.init();
+  // init() is a one-time singleton load; checkDay() also runs on remounts so a
+  // new day's check-in form appears immediately when the user returns here.
+  planner.checkDay();
   document.addEventListener('visibilitychange', onVisibilityOrFocus);
   window.addEventListener('focus', onVisibilityOrFocus);
   dayInterval = window.setInterval(() => planner.checkDay(), 60_000);
@@ -86,10 +91,32 @@ onUnmounted(() => {
 
         <TaskList title-id="h-now" title="Today" :tasks="nowTasks" :meta="nowMeta" @action="onTaskAction">
           <template #actions>
-            <button class="ghost btn-sm" id="ai-btn" type="button" @click="planner.prioritize">AI Prioritize</button>
+            <span
+              id="ai-config-chip"
+              class="chip"
+              :class="{
+                'ai-ready': aiConfig.state === 'ready',
+                'ai-missing': aiConfig.state === 'missing',
+                'ai-unknown': aiConfig.state === 'unknown' || aiConfig.state === 'unsupported',
+              }"
+              :title="aiConfig.note.trim()"
+            >{{ aiConfig.label }}</span>
+            <button
+              class="ghost btn-sm"
+              id="ai-btn"
+              type="button"
+              :title="aiConfig.note.trim()"
+              aria-describedby="ai-status"
+              @click="planner.prioritize"
+            >AI Prioritize</button>
           </template>
           <template #before>
-            <p class="status ai-status-line" id="ai-status" role="status">{{ aiStatus }}</p>
+            <p
+              class="status ai-status-line"
+              id="ai-status"
+              role="status"
+              :class="{ 'ai-status-warning': aiConfig.state !== 'ready' }"
+            >{{ aiStatus }}</p>
             <p class="muted" id="plan-note">{{ planNote }}</p>
           </template>
         </TaskList>
@@ -106,6 +133,7 @@ onUnmounted(() => {
           </div>
           <AddTaskForm />
           <p class="muted">Stored tasks that are not scheduled for today.</p>
+          <p v-if="movedToDumpsNote" class="status" id="moved-to-dumps-note" role="status">{{ movedToDumpsNote }}</p>
           <nav class="task-filters" aria-label="Filter dumped tasks">
             <button
               v-for="option in (['all', 'tomorrow', 'week', 'later'] as const)"
