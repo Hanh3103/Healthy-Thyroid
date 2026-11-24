@@ -139,7 +139,7 @@ test('when AI is not configured it is not called and the user is told why', asyn
 
   assert.equal(aiCalls, 0);
   assert.match(planner.aiStatus.value, /AI could not be used:/);
-  assert.match(planner.aiStatus.value, /Profile > AI provider/);
+  assert.match(planner.aiStatus.value, /open Settings > AI/);
   assert.match(planner.aiStatus.value, /Local estimates used instead/);
   assert.ok(planner.state.value.tasks.every((task) => task.estimateSource === 'heuristic'));
 });

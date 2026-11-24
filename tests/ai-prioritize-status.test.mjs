@@ -30,7 +30,7 @@ test('missing credentials are reported with the exact place to configure them', 
   assert.equal(view.configured, false);
   assert.equal(view.label, 'AI not configured');
   assert.match(view.note, /not configured/);
-  assert.match(view.note, /Profile > AI provider/);
+  assert.match(view.note, /open Settings > AI/);
 });
 
 test('browser mode explains that AI configuration is desktop-only', () => {
@@ -39,7 +39,7 @@ test('browser mode explains that AI configuration is desktop-only', () => {
   assert.equal(view.configured, false);
   assert.match(view.label, /desktop app/);
   assert.match(view.note, /npm run tauri dev/);
-  assert.match(view.note, /Profile > AI provider/);
+  assert.match(view.note, /open Settings > AI/);
 });
 
 test('a failed credentials check reports unknown instead of assuming no config', () => {

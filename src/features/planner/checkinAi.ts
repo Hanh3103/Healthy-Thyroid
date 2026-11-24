@@ -6,6 +6,7 @@
  * device and no API key is needed in the webview.
  */
 import { isTauri } from '../../shared/platform';
+import { useAiStatus } from '../../shared/ai/useAiStatus';
 import { EN_NAMES } from './model';
 import {
   heuristicEnergySuggestion,
@@ -20,9 +21,13 @@ export interface CheckInSuggestionResult {
 
 /** Calls the desktop AI suggest_energy command, falling back to local heuristic if unavailable. */
 export async function requestCheckInSuggestion(symptoms: string): Promise<CheckInSuggestionResult> {
+  const ai = useAiStatus();
   if (isTauri()) {
     try {
-      const result = await suggestEnergy(symptoms);
+      const result = await ai.runAi(
+        'Generating an energy suggestion',
+        () => suggestEnergy(symptoms),
+      );
       return {
         suggestion: {
           level: result.level,

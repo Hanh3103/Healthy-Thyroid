@@ -4,6 +4,8 @@
  * the curated library stays editable and this module stays testable.
  */
 import { daysUntil, keyOf } from '../../shared/utils/index.ts';
+import { weekStartOffset } from '../settings/model.ts';
+import { preferences } from '../settings/preferences.ts';
 import {
   buildHabitItems,
   isDateKey,
@@ -186,9 +188,9 @@ export function isDatePlannable(key: string, now: Date = new Date()): boolean {
   return days !== null && days <= PLAN_AHEAD_DAYS;
 }
 
-/** Monday at midday of the week containing the given date. */
+/** Start of the configured week (Monday by default) at midday. */
 export function mondayOf(date: Date): Date {
-  const offset = (date.getDay() + 6) % 7;
+  const offset = weekStartOffset(date, preferences.value);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() - offset, 12);
 }
 
@@ -1015,7 +1017,7 @@ export function clearMealDataForDates(
   return [...targets].sort();
 }
 
-/** Monday–Sunday of a date's week, clipped to the meal-planning horizon. */
+/** Start-of-week to end-of-week of a date's week, clipped to the meal-planning horizon. */
 export function planningWeekFor(dateKey: string, now: Date = new Date()): {
   dates: string[];
   total: number;
@@ -1023,11 +1025,11 @@ export function planningWeekFor(dateKey: string, now: Date = new Date()): {
 } {
   const date = new Date(`${dateKey}T12:00:00`);
   if (Number.isNaN(date.getTime())) return { dates: [], total: 7, clipped: 7 };
-  const mondayOffset = (date.getDay() + 6) % 7;
-  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() - mondayOffset, 12);
+  const weekOffset = weekStartOffset(date, preferences.value);
+  const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate() - weekOffset, 12);
   const dates: string[] = [];
   for (let index = 0; index < 7; index++) {
-    const candidate = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index, 12);
+    const candidate = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + index, 12);
     const key = keyOf(candidate);
     if (isDatePlannable(key, now)) dates.push(key);
   }

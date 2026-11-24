@@ -10,7 +10,7 @@ use super::client::{
     DEFAULT_CLAUDE_ENDPOINT, DEFAULT_GEMINI_ENDPOINT, DEFAULT_OLLAMA_ENDPOINT,
     DEFAULT_OPENAI_ENDPOINT, ProviderConfig,
 };
-use super::limits::{is_ai_enabled, set_ai_enabled};
+use super::limits::{get_usage, is_ai_enabled, set_ai_enabled};
 
 const CONFIG_FILE: &str = "ai_config.json";
 const LEGACY_CREDENTIALS_FILE: &str = "ai_credentials.json";
@@ -30,7 +30,7 @@ impl Default for AiConfigData {
         Self {
             provider: "gemini".to_string(),
             endpoint: DEFAULT_GEMINI_ENDPOINT.to_string(),
-            model: "gemini-3.8-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
         }
     }
 }
@@ -45,6 +45,9 @@ pub struct AiStatusOutput {
     pub configured: bool,
     pub enabled: bool,
     pub api_key_masked: String,
+    /// Successful AI calls made today and the daily cap, for the header popover.
+    pub call_count: u32,
+    pub daily_limit: u32,
 }
 
 fn keyring_entry() -> Result<Entry, String> {
@@ -147,7 +150,7 @@ pub fn load_config<R: Runtime>(app: &AppHandle<R>) -> AiConfigData {
             return AiConfigData {
                 provider: if provider.is_empty() { "gemini".to_string() } else { provider },
                 endpoint: if endpoint.is_empty() { default_endpoint.to_string() } else { endpoint },
-                model: if model.is_empty() { "gemini-3.8-flash".to_string() } else { model },
+                model: if model.is_empty() { "gemini-3.5-flash-lite".to_string() } else { model },
             };
         }
     }
@@ -196,7 +199,7 @@ pub fn get_active_provider_config<R: Runtime>(app: &AppHandle<R>) -> Result<Prov
 
     let model = if config.model.trim().is_empty() {
         match config.provider.as_str() {
-            "gemini" => "gemini-3.8-flash".to_string(),
+            "gemini" => "gemini-3.5-flash-lite".to_string(),
             "claude" => "claude-3-5-haiku-20241022".to_string(),
             "ollama" => "llama3.2".to_string(),
             _ => "gpt-4o-mini".to_string(),
@@ -221,6 +224,7 @@ pub fn get_status<R: Runtime>(app: &AppHandle<R>) -> Result<AiStatusOutput, Stri
     let is_ollama = config.provider == "ollama";
     let configured = is_ollama || has_key;
     let enabled = is_ai_enabled(app);
+    let (call_count, daily_limit) = get_usage(app);
 
     Ok(AiStatusOutput {
         provider: config.provider,
@@ -230,6 +234,8 @@ pub fn get_status<R: Runtime>(app: &AppHandle<R>) -> Result<AiStatusOutput, Stri
         configured,
         enabled,
         api_key_masked: if has_key { mask_key(&key) } else { String::new() },
+        call_count,
+        daily_limit,
     })
 }
 

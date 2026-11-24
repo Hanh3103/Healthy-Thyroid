@@ -1,25 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import AppButton from '../shared/ui/AppButton.vue';
 import AppFormActions from '../shared/ui/AppFormActions.vue';
 import AppInput from '../shared/ui/AppInput.vue';
 import AppNumberInput from '../shared/ui/AppNumberInput.vue';
-import { requestConfirm } from '../shared/ui/useConfirm';
-import { deleteMyDataConfirm } from '../features/diet/confirmCopy';
-import { useDiet } from '../features/diet/useDiet';
 import { useProfile } from '../features/profile/useProfile';
 
 const profile = useProfile();
-const diet = useDiet();
-const deleteStatus = ref('');
-const { settingsDraft, settingsStatus, draft, apiKeyInput, credentials, status, options, replacingKey, testingConnection } = profile;
-
-async function deleteMyData(): Promise<void> {
-  if (!await requestConfirm(deleteMyDataConfirm())) return;
-  await diet.init();
-  await diet.clearAllDietData();
-  deleteStatus.value = 'Saved diet data, including your pantry, was deleted.';
-}
+const { settingsDraft, settingsStatus } = profile;
 
 onMounted(() => {
   void profile.init();
@@ -32,71 +20,7 @@ onMounted(() => {
       <div class="sec-head">
         <h2>Profile</h2>
       </div>
-      <p class="muted">Manage your profile and application settings from one place. Everything stays on this device.</p>
-    </section>
-
-    <section class="panel" aria-labelledby="ai-settings-heading">
-      <div class="sec-head">
-        <h2 id="ai-settings-heading">AI provider</h2>
-        <span class="chip" :class="{ 'chip-ok': credentials?.configured }">
-          {{ credentials?.configured ? 'Configured' : 'Not configured' }}
-        </span>
-      </div>
-      <p class="muted">
-        Choose the AI provider/model and save an API key. The key is stored only in the desktop app's Rust app-data; it is never saved in Vue state, browser storage, or the web bundle.
-      </p>
-
-      <form class="diet-settings-form" @submit.prevent="profile.save">
-        <div class="diet-settings-grid">
-          <label class="budget-field" for="ai-provider">
-            <span>Provider</span>
-            <select id="ai-provider" class="budget-select" v-model="draft.provider" @change="profile.selectProvider(draft.provider)">
-              <option v-for="opt in options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
-          </label>
-
-          <AppInput id="ai-model" v-model="draft.model" label="Model" placeholder="e.g. gemini-3.8-flash" />
-          <AppInput id="ai-endpoint" v-model="draft.endpoint" label="Endpoint" placeholder="Provider API endpoint" />
-
-          <!-- Key handling per OS Keychain spec -->
-          <div v-if="draft.provider === 'ollama'" class="key-field-container">
-            <span class="muted">Ollama runs locally and does not require an API key.</span>
-          </div>
-          <div v-else-if="credentials?.hasStoredKey && !replacingKey" class="key-field-container key-saved-container">
-            <span class="key-saved-badge">✓ Key saved in OS keychain</span>
-            <div class="key-btn-group">
-              <AppButton variant="ghost" size="sm" type="button" @click="profile.startReplaceKey">Replace</AppButton>
-              <AppButton variant="ghost" size="sm" type="button" @click="profile.deleteKey">Delete</AppButton>
-            </div>
-          </div>
-          <div v-else class="key-field-container">
-            <AppInput
-              id="ai-key"
-              v-model="apiKeyInput"
-              label="API key"
-              type="password"
-              placeholder="Paste your API key"
-              autocomplete="off"
-            />
-            <AppButton v-if="credentials?.hasStoredKey" variant="ghost" size="sm" type="button" @click="profile.cancelReplaceKey">Cancel</AppButton>
-          </div>
-        </div>
-
-        <p class="muted ai-note">
-          <template v-if="draft.provider === 'ollama'">Local Ollama model. Ensure Ollama is running at the configured endpoint.</template>
-          <template v-else-if="credentials?.hasStoredKey">Key is stored in the OS keychain and never stored in frontend state or browser storage.</template>
-          <template v-else>No key stored yet. AI features require an API key stored securely in the OS keychain.</template>
-        </p>
-
-        <AppFormActions>
-          <AppButton variant="ghost" type="button" :disabled="testingConnection" @click="profile.testConnection">
-            {{ testingConnection ? 'Testing...' : 'Test connection' }}
-          </AppButton>
-          <AppButton variant="ghost" type="button" @click="profile.reset">Reset</AppButton>
-          <AppButton variant="primary" size="sm" type="submit">Save AI settings</AppButton>
-        </AppFormActions>
-      </form>
-      <p class="status" role="status">{{ status }}</p>
+      <p class="muted">Manage your diet preferences here. Application settings live in <RouterLink to="/settings">Settings</RouterLink>. Everything stays on this device.</p>
     </section>
 
     <section class="panel" aria-labelledby="diet-settings-heading">
@@ -186,15 +110,6 @@ onMounted(() => {
       <p class="status" role="status">{{ settingsStatus }}</p>
       <p class="muted">These settings and your pantry stay on this device. Only the values needed for a plan are sent to the AI.</p>
     </section>
-
-    <section class="panel delete-data-panel" aria-labelledby="delete-data-heading">
-      <div class="sec-head">
-        <h2 id="delete-data-heading">Delete my data</h2>
-      </div>
-      <p class="muted">Removes saved diet data from this device, including your At home pantry.</p>
-      <AppButton variant="ghost" type="button" @click="deleteMyData">Delete my data</AppButton>
-      <p class="status" role="status">{{ deleteStatus }}</p>
-    </section>
   </div>
 </template>
 
@@ -246,14 +161,4 @@ onMounted(() => {
   font-weight: var(--font-weight-medium);
 }
 
-.ai-note { margin-top: 8px; font-size: 0.92rem; }
-.chip-ok { background: color-mix(in srgb, var(--ok, #2f855a) 14%, transparent); color: var(--ok, #2f855a); }
-
-.delete-data-panel .sec-head h2 {
-  color: var(--danger, #c53030);
-}
-
-.delete-data-panel .status {
-  margin-bottom: 0;
-}
 </style>

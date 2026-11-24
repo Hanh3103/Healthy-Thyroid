@@ -541,7 +541,11 @@ test('the permanent card, day summary and Profile deletion are wired into the UI
   assert.match(day, /@click="emit\('show-pantry'\)"/);
   assert.match(day, /\{\{ pantry\.length \}\} item\{\{ pantry\.length === 1 \? '' : 's' \}\} at home/);
 
+  const privacy = source('../src/features/settings/PrivacySettingsSection.vue');
+  assert.match(privacy, /Delete my data/);
+  assert.match(privacy, /diet\.clearAllDietData\(\)/);
+
   const profile = source('../src/views/ProfileView.vue');
-  assert.match(profile, /Delete my data/);
-  assert.match(profile, /diet\.clearAllDietData\(\)/);
+  assert.doesNotMatch(profile, /AI provider/);
+  assert.doesNotMatch(profile, /Delete my data/);
 });

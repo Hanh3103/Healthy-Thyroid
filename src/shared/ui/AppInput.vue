@@ -9,6 +9,7 @@ withDefaults(defineProps<{
   maxlength?: number;
   required?: boolean;
   autocomplete?: string;
+  list?: string;
   inputmode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
   pattern?: string;
 }>(), {
@@ -29,6 +30,7 @@ withDefaults(defineProps<{
       :maxlength="maxlength"
       :required="required"
       :autocomplete="autocomplete"
+      :list="list"
       :inputmode="inputmode"
       :pattern="pattern"
     />
@@ -43,6 +45,7 @@ withDefaults(defineProps<{
     :maxlength="maxlength"
     :required="required"
     :autocomplete="autocomplete"
+    :list="list"
     :inputmode="inputmode"
     :pattern="pattern"
   />

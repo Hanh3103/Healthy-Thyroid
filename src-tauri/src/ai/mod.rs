@@ -46,6 +46,12 @@ pub fn run_json<R: Runtime>(
     // 5. Extract text from provider structure
     let text = client::extract_text(&raw_data, &config.provider)?;
 
+    // A Cancel press is honoured after the provider responds, before the call
+    // is counted as a successful request.
+    if limits::cancellation_requested() {
+        return Err("AI request cancelled.".to_string());
+    }
+
     // 6. Parse JSON with code fence removal
     let parsed_json = validate::extract_json_value(&text)?;
 
@@ -93,6 +99,40 @@ pub async fn ai_status<R: Runtime>(
     })
     .await
     .map_err(|e| format!("Task execution failed: {e}"))?
+}
+
+/// Persists the AI suggestions switch immediately and returns fresh status.
+#[tauri::command]
+pub async fn set_ai_enabled<R: Runtime>(
+    app: AppHandle<R>,
+    enabled: bool,
+) -> Result<config::AiStatusOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        limits::set_ai_enabled(&app, enabled);
+        config::get_status(&app)
+    })
+    .await
+    .map_err(|e| format!("Task execution failed: {e}"))?
+}
+
+/// Persists the daily call allowance shown in the AI settings and header popover.
+#[tauri::command]
+pub async fn set_ai_daily_limit<R: Runtime>(
+    app: AppHandle<R>,
+    limit: u32,
+) -> Result<config::AiStatusOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        limits::set_daily_limit(&app, limit);
+        config::get_status(&app)
+    })
+    .await
+    .map_err(|e| format!("Task execution failed: {e}"))?
+}
+
+/// Cooperative cancellation for the request currently in flight.
+#[tauri::command]
+pub fn cancel_ai_request() {
+    limits::request_cancel();
 }
 
 #[tauri::command]

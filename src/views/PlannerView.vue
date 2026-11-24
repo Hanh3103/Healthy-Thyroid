@@ -12,6 +12,7 @@ import AddHabitForm from '../features/planner/AddHabitForm.vue';
 import TaskDetailsDialog from '../features/planner/TaskDetailsDialog.vue';
 import BackupPanel from '../features/planner/BackupPanel.vue';
 import AppButton from '../shared/ui/AppButton.vue';
+import SetupAiLink from '../shared/ui/SetupAiLink.vue';
 import type { Task } from '../features/planner/model';
 
 const planner = usePlanner();
@@ -101,6 +102,7 @@ onUnmounted(() => {
               }"
               :title="aiConfig.note.trim()"
             >{{ aiConfig.label }}</span>
+            <SetupAiLink v-if="aiConfig.state !== 'ready'" />
             <button
               class="ghost btn-sm"
               id="ai-btn"

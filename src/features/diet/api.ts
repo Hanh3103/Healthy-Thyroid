@@ -7,6 +7,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri, localLoad, localRemove, localSave, tauriLoad, tauriSave } from '../../shared/platform.ts';
+import { useAiStatus } from '../../shared/ai/useAiStatus.ts';
 import { normalizeDietAiReply, type DietAiRequest } from './ai.ts';
 import {
   normalizeDietData,
@@ -120,7 +121,10 @@ export interface UpdateShoppingResponse {
 /** Asks the desktop AI to update shopping list after a meal edit. */
 export async function updateShopping(input: UpdateShoppingPayload): Promise<UpdateShoppingResponse> {
   if (!isTauri()) throw new Error('Shopping update is available in the desktop app.');
-  return invoke<UpdateShoppingResponse>('update_shopping', { input });
+  return useAiStatus().runAi(
+    'Updating your shopping list',
+    () => invoke<UpdateShoppingResponse>('update_shopping', { input }),
+  );
 }
 
 /** editMeal responses contain only needed ingredients, never a new meal. */

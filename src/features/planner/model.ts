@@ -3,6 +3,8 @@
  * No Vue, no persistence, no DOM.
  */
 import { keyOf, daysUntil } from '../../shared/utils/index.ts';
+import { weekStartOffset } from '../settings/model.ts';
+import { preferences } from '../settings/preferences.ts';
 import { symptomsFromNote } from './checkin.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -432,13 +434,13 @@ export function buildEnergyCalendar(
 ): EnergyCalendarMonth {
   const todayKey = keyOf(now);
   const first = new Date(year, month, 1, 12);
-  const mondayOffset = (first.getDay() + 6) % 7;
+  const weekOffset = weekStartOffset(first, preferences.value);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cellCount = Math.ceil((mondayOffset + daysInMonth) / 7) * 7;
+  const cellCount = Math.ceil((weekOffset + daysInMonth) / 7) * 7;
 
   const days: EnergyCalendarDay[] = [];
   for (let index = 0; index < cellCount; index++) {
-    const date = new Date(year, month, 1 - mondayOffset + index, 12);
+    const date = new Date(year, month, 1 - weekOffset + index, 12);
     const key = keyOf(date);
     days.push({
       key,
@@ -495,11 +497,11 @@ export function buildEnergyWeek(
   offset = 0,
 ): EnergyCalendarWeek {
   const todayKey = keyOf(now);
-  const mondayOffset = (now.getDay() + 6) % 7;
+  const weekOffset = weekStartOffset(now, preferences.value);
   const monday = new Date(
     now.getFullYear(),
     now.getMonth(),
-    now.getDate() - mondayOffset + offset * 7,
+    now.getDate() - weekOffset + offset * 7,
     12,
   );
 

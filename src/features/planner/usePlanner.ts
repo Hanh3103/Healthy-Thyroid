@@ -43,6 +43,7 @@ import { requestCheckInSuggestion } from './checkinAi';
 import { describeAiConfig, unknownAiConfig, type AiConfigView } from './aiConfigStatus';
 import { loadPlanner, requestAiPrioritization, savePlanner } from './api';
 import { isTauri, localLoad, localSave } from '../../shared/platform';
+import { useAiStatus } from '../../shared/ai/useAiStatus';
 import { keyOf } from '../../shared/utils';
 import { requestConfirm } from '../../shared/ui/useConfirm';
 import { removeHabitConfirm } from '../../shared/ui/confirmCopy';
@@ -65,6 +66,7 @@ const state = ref<AppState>(seedState());
 const initialised = ref(false);
 
 const dumpFilter = ref<DumpFilter>('all');
+const ai = useAiStatus();
 const aiConfig = ref<AiConfigView>(unknownAiConfig());
 const aiStatus = ref('');
 const backupStatus = ref('');
@@ -658,7 +660,10 @@ async function prioritize(): Promise<void> {
 
   try {
     const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' });
-    const raw = await requestAiPrioritization(buildPrompt(inputs, energyValue, today, weekday));
+    const raw = await ai.runAi(
+      'Prioritizing your tasks',
+      () => requestAiPrioritization(buildPrompt(inputs, energyValue, today, weekday)),
+    );
     const { estimates, missing } = parseEstimates(raw, inputs.map((task) => task.id));
     if (!estimates.size) throw new Error('the AI returned no usable estimates');
 

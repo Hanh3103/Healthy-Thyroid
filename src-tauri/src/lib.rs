@@ -7,12 +7,37 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Static build metadata used by the About settings section.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    version: &'static str,
+    prompt_version: &'static str,
+    licenses: Vec<&'static str>,
+}
+
+#[tauri::command]
+fn app_info() -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        prompt_version: ai::prompts::PROMPT_VERSION,
+        licenses: vec![
+            "Healthy Thyroid — Apache-2.0",
+            "Vue.js — MIT",
+            "Element Plus — MIT",
+            "Tauri — Apache-2.0 OR MIT",
+            "Tesseract.js — Apache-2.0",
+        ],
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            app_info,
             // Unified AI commands
             ai::features::energy::suggest_energy,
             ai::features::prioritize::prioritize_tasks,
@@ -20,6 +45,9 @@ pub fn run() {
             ai::features::shopping::update_shopping,
             ai::save_ai_config,
             ai::ai_status,
+            ai::set_ai_enabled,
+            ai::set_ai_daily_limit,
+            ai::cancel_ai_request,
             ai::delete_ai_key,
             ai::test_connection,
             // Planner (tasks)

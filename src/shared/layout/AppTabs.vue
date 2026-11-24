@@ -40,11 +40,27 @@ onUnmounted(() => {
       :key="tab.id"
       :to="tab.path"
       :data-app-view="tab.id"
+      :title="tab.label"
+      :aria-label="tab.label"
+      :aria-current="route.path === tab.path ? 'page' : undefined"
       class="ghost btn-sm"
       active-class="active"
       exact-active-class="active"
     >
-      {{ tab.label }}
+      <svg
+        class="app-tab-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path v-for="(path, index) in tab.icon" :key="index" :d="path" />
+      </svg>
+      <span class="app-tab-label">{{ tab.label }}</span>
     </RouterLink>
   </nav>
 </template>

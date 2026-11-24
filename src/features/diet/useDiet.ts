@@ -58,12 +58,14 @@ import {
 } from './model';
 import { buildDietAiRequest, type Appetite, type DietAiMode, type DietAiRequest } from './ai.ts';
 import { usePlanner } from '../planner/usePlanner';
+import { useAiStatus } from '../../shared/ai/useAiStatus';
 import { dietSettings, loadSettings } from '../profile/settings';
 import * as api from './api';
 import factsJson from './knowledge/thyroidFacts.json';
 
 const facts = factsJson as unknown as ThyroidFact[];
 const planner = usePlanner();
+const ai = useAiStatus();
 
 /** Optional answers from the calendar day panel; nothing is generated implicitly. */
 interface GenerateOptions extends Partial<PlanBasis> {
@@ -430,7 +432,10 @@ async function generate(range: DietRange, mode: DietAiMode = 'generate'): Promis
   errorText.value = '';
   canRetryGeneration.value = false;
   try {
-    const raw = await api.requestDietPlan(aiRequest);
+    const raw = await ai.runAi(
+      'Generating your meal plan',
+      () => api.requestDietPlan(aiRequest),
+    );
     const result = parseRangePlan(raw, facts, request, preferences.value);
     if (!result.plan) throw new Error(result.error || 'The AI response could not be used.');
     await applyPlan(range, result.plan);

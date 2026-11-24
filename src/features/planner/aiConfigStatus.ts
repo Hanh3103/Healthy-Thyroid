@@ -22,7 +22,7 @@ export function unsupportedAiConfig(): AiConfigView {
   return {
     state: 'unsupported',
     label: 'AI needs desktop app',
-    note: ' AI configuration is available only in the desktop app: run npm run tauri dev and add a key in Profile > AI provider.',
+    note: ' AI configuration is available only in the desktop app: run npm run tauri dev, then open Settings > AI.',
     configured: false,
   };
 }
@@ -44,7 +44,7 @@ export function describeAiConfig(status: AiCredentialsStatus | null, inDesktop: 
     return {
       state: 'missing',
       label: 'AI not configured',
-      note: ' AI is not configured: add a provider, model, and API key in Profile > AI provider.',
+      note: ' AI is not configured: open Settings > AI to add a provider, model and API key.',
       configured: false,
     };
   }

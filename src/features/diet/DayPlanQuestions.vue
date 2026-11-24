@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import AppButton from '../../shared/ui/AppButton.vue';
+import SetupAiLink from '../../shared/ui/SetupAiLink.vue';
+import { AI_CONSENT_ITEMS } from '../settings/consent.ts';
 import {
   PANTRY_SEPARATOR,
   addPantryNames,
@@ -244,19 +246,16 @@ function submit(skip: boolean): void {
     <div v-if="consentChoice === 'unset'" class="consent-inline" role="note">
       <p>Before the first AI call, this is sent:</p>
       <ul class="consent-list">
-        <li>Daily Check-in energy level for selected day(s), symptoms as name + severity only (never the free note), and busyness computed from task/habit counts and minutes.</li>
-        <li>Profile: medication time, meal times, diet preferences, allergies, avoided foods, cooking minutes, equipment, servings/leftovers, cuisine preference, shopping place and budget.</li>
-        <li>Diet: wanted foods and appetite for the day, pantry, recent meals from the last 3–5 days, kept meals, the changed meal when editing, shopping-item names only, and the curated fact library.</li>
-        <li>Computed by the app: days/weekdays, remaining meals for today, and the timing clock times.</li>
-        <li>No names, free notes, task/habit names, or medical records. API key stays in Rust.</li>
+        <li v-for="item in AI_CONSENT_ITEMS" :key="item">{{ item }}</li>
       </ul>
       <div class="consent-actions">
         <AppButton variant="primary" @click="emit('consent', 'allowed')">Allow AI suggestions</AppButton>
         <AppButton @click="emit('consent', 'declined')">Use general ideas only</AppButton>
+        <SetupAiLink />
       </div>
     </div>
     <p v-else-if="consentChoice === 'declined'" class="muted consent-off">
-      AI ideas are off. General food ideas will be used.
+      AI ideas are off. General food ideas will be used. <SetupAiLink />
     </p>
 
     <div class="question-actions">

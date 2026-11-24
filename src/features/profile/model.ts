@@ -21,7 +21,7 @@ export interface ProviderPreset {
 /** Built-in presets; `custom` has no preset because the user supplies everything. */
 export const AI_ENDPOINTS: Record<Exclude<AIProvider, 'custom'>, ProviderPreset> = {
   openai: { endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
-  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-3.8-flash' },
+  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-3.5-flash-lite' },
   claude: { endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-3-5-haiku-latest' },
   mistral: { endpoint: 'https://api.mistral.ai/v1/chat/completions', model: 'mistral-small-latest' },
   ollama: { endpoint: 'http://localhost:11434/api/chat', model: 'llama3.2' },
@@ -35,6 +35,44 @@ export const AI_PROVIDER_OPTIONS: Array<{ value: AIProvider; label: string }> = 
   { value: 'ollama', label: 'Ollama (local)' },
   { value: 'custom', label: 'Custom' },
 ];
+
+/** Examples offered as a datalist while still allowing any model name. */
+export const MODEL_SUGGESTIONS: Record<AIProvider, readonly string[]> = {
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+  gemini: ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.5-pro'],
+  claude: ['claude-3-5-haiku-latest', 'claude-3-5-sonnet-latest'],
+  mistral: ['mistral-small-latest', 'mistral-medium-latest'],
+  ollama: ['llama3.2', 'mistral', 'gemma2'],
+  custom: [],
+};
+
+/**
+ * Front-end mirror of the Rust endpoint allowlist. The Rust client validates
+ * again before every request; this gives immediate feedback in Settings.
+ */
+export function endpointError(provider: AIProvider, endpoint: string): string {
+  const value = endpoint.trim();
+  if (!value) return 'Enter an endpoint URL.';
+  const local = value.startsWith('http://localhost') || value.startsWith('http://127.0.0.1');
+  if (provider === 'gemini') {
+    return value.startsWith('https://generativelanguage.googleapis.com')
+      ? ''
+      : 'Gemini endpoints must be on https://generativelanguage.googleapis.com.';
+  }
+  if (provider === 'claude') {
+    return value.startsWith('https://api.anthropic.com')
+      ? ''
+      : 'Claude endpoints must be on https://api.anthropic.com.';
+  }
+  if (provider === 'ollama') {
+    return local || value.startsWith('https://')
+      ? ''
+      : 'Ollama endpoints must be local (localhost or 127.0.0.1) or use HTTPS.';
+  }
+  return value.startsWith('https://') || local
+    ? ''
+    : 'Remote endpoints must use HTTPS. Localhost is allowed for testing.';
+}
 
 export interface AiCredentialsStatus {
   configured: boolean;

@@ -7,6 +7,7 @@
  */
 import { computed, ref } from 'vue';
 import { isTauri } from '../../shared/platform';
+import { useAiStatus } from '../../shared/ai/useAiStatus';
 import {
   AI_PROVIDER_OPTIONS,
   emptyConfig,
@@ -19,7 +20,7 @@ import {
 import { loadSettings, saveSettings as persistSettings } from './settings';
 import { dietSettings } from './settings';
 import type { DietSettings } from './dietSettings';
-import { deleteAiKey, getAiCredentialsStatus, saveAiCredentials, testAiConnection } from './api';
+import { deleteAiKey, getAiCredentialsStatus, saveAiCredentials } from './api';
 
 const status = ref('');
 const settingsStatus = ref('');
@@ -111,7 +112,7 @@ export function useProfile() {
     testingConnection.value = true;
     status.value = 'Testing connection to AI provider...';
     try {
-      const msg = await testAiConnection();
+      const msg = await useAiStatus().testConnection();
       status.value = msg;
     } catch (e) {
       status.value = `Connection test failed: ${e instanceof Error ? e.message : String(e)}`;
