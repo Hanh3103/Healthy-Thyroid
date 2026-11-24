@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { keyOf } from '../../shared/utils';
 import { requestConfirm } from '../../shared/ui/useConfirm';
 import { clearPantryConfirm } from './confirmCopy';
 import { PANTRY_SEPARATOR, splitPantryText } from './pantryInput';
@@ -7,8 +8,10 @@ import { useDiet } from './useDiet';
 
 const {
   pantry,
+  pantryNotice,
   addPantryMany,
   removePantry,
+  undoPantryRemoval,
   setPantryLow,
   clearPantry,
 } = useDiet();
@@ -57,6 +60,11 @@ const BOUGHT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 function boughtLabel(at: number): string {
   const date = new Date(at);
   return `${date.getDate()} ${BOUGHT_MONTHS[date.getMonth()]}`;
+}
+
+/** A fresh purchase is not running low, so the toggle stays out of the way today. */
+function boughtToday(at: number): boolean {
+  return keyOf(new Date(at)) === keyOf(new Date());
 }
 
 async function onClear(): Promise<void> {
@@ -108,7 +116,11 @@ async function onClear(): Promise<void> {
         :class="{ 'is-low': item.low }"
       >
         <span class="pantry-name">{{ item.name }}</span>
-        <label class="low-toggle" :title="item.low ? 'Mark as available' : 'Mark as running low'">
+        <label
+          v-if="!(item.boughtAt && boughtToday(item.boughtAt))"
+          class="low-toggle"
+          :title="item.low ? 'Mark as available' : 'Mark as running low'"
+        >
           <input
             type="checkbox"
             :checked="item.low === true"
@@ -130,6 +142,11 @@ async function onClear(): Promise<void> {
     </div>
     <p v-else class="pantry-empty">
       Nothing saved yet. Add what you have to keep the shopping list short.
+    </p>
+
+    <p v-if="pantryNotice" class="pantry-notice" role="status">
+      {{ pantryNotice }}
+      <button type="button" class="link-btn" @click="undoPantryRemoval()">Undo</button>
     </p>
 
     <div class="pantry-footer">
@@ -258,6 +275,28 @@ async function onClear(): Promise<void> {
   color: var(--ink-2);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.pantry-notice {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .pantry-footer {

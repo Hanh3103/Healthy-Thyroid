@@ -101,9 +101,32 @@ const shoppingUpdateError = ref('');
 const lastBought = ref<{
   itemId: string;
   pantryItemId?: string;
-  previousStatus: 'open' | 'bought';
+  previousShopping: ShoppingItem;
   previousPantry?: PantryItem;
 } | null>(null);
+/** Removal messages keep the two stores independent and offer an Undo. */
+const pantryNotice = ref('');
+const lastPantryRemoval = ref<{ item: PantryItem; index: number } | null>(null);
+const shoppingNotice = ref('');
+const lastShoppingRemoval = ref<{
+  item: ShoppingItem;
+  previousLow?: { id: string; low?: boolean };
+} | null>(null);
+/** Tick feedback: the row lingers briefly, the notice offers Undo for 5 seconds. */
+const BOUGHT_ROW_MS = 1000;
+const BOUGHT_NOTICE_MS = 5000;
+const boughtNotice = ref('');
+const recentlyBought = ref<string[]>([]);
+const boughtRowTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let boughtNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Runs a UI timer without keeping a Node test process alive. */
+function scheduleTimer(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(callback, ms);
+  (timer as unknown as { unref?: () => void }).unref?.();
+  return timer;
+}
+
 interface MealEditBatch {
   date: string;
   oldMeal: { idea: string; ingredients: string[] };
@@ -274,7 +297,8 @@ async function applyPantryDraft(value: string[]): Promise<void> {
     addedAt: Date.now(),
     source: 'manual' as const,
   });
-  syncShoppingWithPantry();
+  hideShoppingForPantry(names);
+  syncRunningLow();
   await persist();
 }
 
@@ -696,6 +720,7 @@ async function init(): Promise<void> {
   await planner.init();
   planner.checkDay();
   data.value = await api.loadDiet(facts);
+  clearYesterdayBought();
 
   const todayDate = todayContext.value.date;
   const previous = data.value.lastPlan;
@@ -815,7 +840,7 @@ async function addPantryMany(values: string[]): Promise<void> {
     added.push(clean);
   });
   if (!added.length) return;
-  syncShoppingWithPantry();
+  hideShoppingForPantry(added);
   await persist();
   statusText.value = `${added.join(', ')} added to your pantry.`;
 }
@@ -824,9 +849,34 @@ async function addPantry(name: string): Promise<void> {
   await addPantryMany([name]);
 }
 
+/**
+ * Removing from At home never touches the shopping list. The row stays open (or
+ * bought), and the message offers an Undo that restores the pantry item.
+ */
 async function removePantry(id: string): Promise<void> {
-  data.value.pantry = data.value.pantry.filter((item) => item.id !== id);
-  syncShoppingWithPantry();
+  const index = data.value.pantry.findIndex((item) => item.id === id);
+  if (index < 0) return;
+  const item = data.value.pantry[index];
+  data.value.pantry = data.value.pantry.filter((entry) => entry.id !== id);
+  const openOnList = data.value.shopping.some((entry) =>
+    entry.status === 'open' && entry.name.toLowerCase() === item.name.toLowerCase());
+  lastPantryRemoval.value = { item: { ...item }, index };
+  pantryNotice.value = item.low || openOnList
+    ? 'Removed from At home. Still on your shopping list.'
+    : 'Removed from At home.';
+  await persist();
+}
+
+/** Undo for a pantry removal restores only the pantry item. */
+async function undoPantryRemoval(): Promise<void> {
+  const removal = lastPantryRemoval.value;
+  if (!removal) return;
+  const at = Math.min(Math.max(removal.index, 0), data.value.pantry.length);
+  const next = [...data.value.pantry];
+  next.splice(at, 0, removal.item);
+  data.value.pantry = next;
+  lastPantryRemoval.value = null;
+  pantryNotice.value = '';
   await persist();
 }
 
@@ -835,14 +885,16 @@ async function setPantryLow(id: string, low: boolean): Promise<void> {
   const item = data.value.pantry.find((entry) => entry.id === id);
   if (!item || item.low === low) return;
   item.low = low || undefined;
-  syncShoppingWithPantry();
+  syncRunningLow();
   await persist();
 }
 
 async function clearPantry(): Promise<void> {
   if (!data.value.pantry.length) return;
+  // Clearing At home leaves the shopping list untouched.
   data.value.pantry = [];
-  syncShoppingWithPantry();
+  lastPantryRemoval.value = null;
+  pantryNotice.value = '';
   await persist();
   statusText.value = 'Pantry cleared.';
 }
@@ -856,6 +908,11 @@ async function clearAllDietData(): Promise<void> {
   }, facts);
   // Clear transient state so a stale undo/merge cannot resurrect deleted data.
   lastBought.value = null;
+  lastPantryRemoval.value = null;
+  pantryNotice.value = '';
+  lastShoppingRemoval.value = null;
+  shoppingNotice.value = '';
+  clearBoughtFeedback();
   shoppingMerge.value = null;
   pendingGeneration.value = null;
   lastFailedAiRequest = null;
@@ -871,59 +928,83 @@ function setShopping(items: ShoppingItem[]): void {
 }
 
 /**
- * Keeps the shopping list aligned with the pantry card: available items drop
- * off, removed items come back, and running-low items stay visible as missing.
+ * Adding something you now have at home hides matching open shopping rows.
+ * This is the only pantry -> shopping action; nothing here removes pantry data.
  */
-function syncShoppingWithPantry(): void {
+function hideShoppingForPantry(names: string[]): void {
+  if (!names.length) return;
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
   const now = Date.now();
-  const pantryByKey = new Map(data.value.pantry.map((item) => [item.name.toLowerCase(), item] as const));
-  const openKeys = new Set<string>();
   const next = data.value.shopping.map((item) => {
+    if (item.status !== 'open' || !wanted.has(item.name.toLowerCase())) return item;
+    if (isBasicShoppingItem(item.name)) return item;
+    return { ...item, status: 'removed' as const, fromPantry: true, updatedAt: now };
+  });
+  setShopping(next);
+}
+
+/**
+ * Running low reuses the one row for that ingredient: it reopens an existing
+ * open/bought/removed row, or creates a source=pantry row only when none exists.
+ * Unticking removes only a still-open row that this action created; an orphaned
+ * row whose pantry item was deleted is left open until it is cleared.
+ */
+function syncRunningLow(): void {
+  const now = Date.now();
+  const next = [...data.value.shopping];
+  const pantryByKey = new Map(data.value.pantry.map((item) => [item.name.toLowerCase(), item] as const));
+  const handled = new Set<string>();
+
+  next.forEach((item, index) => {
+    if (!item.runningLow) return;
     const key = item.name.toLowerCase();
     const stored = pantryByKey.get(key);
-    if (item.status !== 'open') return item;
-    if (item.runningLow) {
-      if (stored?.low && !isBasicShoppingItem(item.name)) {
-        openKeys.add(key);
-        return { ...item, updatedAt: now };
+    handled.add(key);
+    if (!stored || stored.low) {
+      // Keep an orphaned low row; reopen one that was ticked bought meanwhile.
+      if (stored?.low && item.status !== 'open') {
+        next[index] = { ...item, status: 'open', updatedAt: now };
       }
-      return { ...item, status: 'removed' as const, runningLow: undefined, updatedAt: now };
+      return;
     }
-    if (stored && !stored.low && !isBasicShoppingItem(item.name)) {
-      return { ...item, status: 'removed' as const, fromPantry: true, updatedAt: now };
-    }
-    openKeys.add(key);
-    return item;
+    next[index] = item.status === 'open' && item.source === 'pantry'
+      ? { ...item, status: 'removed', runningLow: undefined, updatedAt: now }
+      : { ...item, runningLow: undefined, updatedAt: now };
   });
 
-  data.value.pantry.filter((item) => item.low && !openKeys.has(item.name.toLowerCase()))
+  data.value.pantry
+    .filter((item) => item.low && !isBasicShoppingItem(item.name))
     .forEach((item) => {
-      if (isBasicShoppingItem(item.name)) return;
+      const key = item.name.toLowerCase();
+      if (handled.has(key)) return;
+      handled.add(key);
+      const index = next.findIndex((entry) => entry.name.toLowerCase() === key);
+      if (index >= 0) {
+        next[index] = { ...next[index], status: 'open', runningLow: true, updatedAt: now };
+        return;
+      }
       next.push({
         id: makeId(),
         name: item.name,
-        source: 'user',
+        forDays: [],
+        source: 'pantry',
         status: 'open',
         inPlan: false,
-        forDays: [],
         runningLow: true,
         createdAt: now,
         updatedAt: now,
       });
     });
 
-  data.value.shopping.forEach((item) => {
-    if (item.status !== 'removed' || !item.fromPantry || pantryByKey.has(item.name.toLowerCase())) return;
-    const restored = next.find((entry) => entry.id === item.id);
-    if (!restored) return;
-    Object.assign(restored, { status: 'open', fromPantry: undefined, updatedAt: now });
-  });
-
   setShopping(next);
 }
 
 function isNoLongerNeeded(item: ShoppingItem): boolean {
-  return item.status === 'open' && item.source !== 'user' && !item.inPlan;
+  return item.status === 'open'
+    && item.source !== 'user'
+    && item.source !== 'pantry'
+    && !item.runningLow
+    && !item.inPlan;
 }
 
 function cleanForDays(days: string[]): string[] {
@@ -934,7 +1015,12 @@ async function toggleShopping(id: string, bought: boolean): Promise<void> {
   const item = data.value.shopping.find((entry) => entry.id === id);
   if (!item) return;
   if (bought) {
+    if (item.status === 'bought') return;
     await buyShopping(id);
+    return;
+  }
+  if (item.status === 'bought') {
+    await untickBought(id);
     return;
   }
   const now = Date.now();
@@ -958,34 +1044,154 @@ async function buyShopping(id: string): Promise<void> {
   lastBought.value = {
     itemId: id,
     pantryItemId: addedPantryItem?.id,
-    previousStatus: item.status === 'bought' ? 'bought' : 'open',
+    previousShopping: { ...item },
     previousPantry: previousPantry ? { ...previousPantry } : undefined,
   };
   statusText.value = `${item.name} moved to your pantry.`;
+  showBoughtFeedback(id);
   await persist();
+}
+
+/** Keeps the ticked row visible for a moment and shows the Undo notice for 5s. */
+function showBoughtFeedback(id: string): void {
+  if (!recentlyBought.value.includes(id)) {
+    recentlyBought.value = [...recentlyBought.value, id];
+  }
+  const existingRowTimer = boughtRowTimers.get(id);
+  if (existingRowTimer) clearTimeout(existingRowTimer);
+  boughtRowTimers.set(id, scheduleTimer(() => {
+    recentlyBought.value = recentlyBought.value.filter((entry) => entry !== id);
+    boughtRowTimers.delete(id);
+  }, BOUGHT_ROW_MS));
+
+  boughtNotice.value = 'Moved to At home';
+  if (boughtNoticeTimer) clearTimeout(boughtNoticeTimer);
+  boughtNoticeTimer = scheduleTimer(() => {
+    boughtNotice.value = '';
+    lastBought.value = null;
+    boughtNoticeTimer = null;
+  }, BOUGHT_NOTICE_MS);
+}
+
+function clearBoughtFeedback(id?: string): void {
+  if (boughtNoticeTimer) {
+    clearTimeout(boughtNoticeTimer);
+    boughtNoticeTimer = null;
+  }
+  boughtNotice.value = '';
+  if (id === undefined) {
+    boughtRowTimers.forEach((timer) => clearTimeout(timer));
+    boughtRowTimers.clear();
+    recentlyBought.value = [];
+    return;
+  }
+  const timer = boughtRowTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    boughtRowTimers.delete(id);
+  }
+  recentlyBought.value = recentlyBought.value.filter((entry) => entry !== id);
 }
 
 async function undoBought(): Promise<void> {
   const purchase = lastBought.value;
   if (!purchase) return;
+  const restore = purchase.previousShopping;
   setShopping(data.value.shopping.map((item) =>
-    item.id === purchase.itemId ? { ...item, status: purchase.previousStatus, updatedAt: Date.now() } : item));
+    item.id === restore.id ? { ...restore, updatedAt: Date.now() } : item));
   if (purchase.pantryItemId) {
     data.value.pantry = data.value.pantry.filter((item) => item.id !== purchase.pantryItemId);
   } else if (purchase.previousPantry) {
-    const restore = purchase.previousPantry;
-    data.value.pantry = data.value.pantry.map((item) => item.id === restore.id ? { ...restore } : item);
+    const restorePantry = purchase.previousPantry;
+    data.value.pantry = data.value.pantry.map((item) => item.id === restorePantry.id ? { ...restorePantry } : item);
   }
   lastBought.value = null;
+  clearBoughtFeedback(restore.id);
   statusText.value = 'Move to pantry undone.';
   await persist();
 }
 
-async function removeShopping(id: string): Promise<void> {
+/** Untick a bought row: it returns to the active list and leaves At home. */
+async function untickBought(id: string): Promise<void> {
+  const item = data.value.shopping.find((entry) => entry.id === id);
+  if (!item || item.status !== 'bought') return;
   const now = Date.now();
-  setShopping(data.value.shopping.map((item) =>
-    item.id === id ? { ...item, status: 'removed', isNew: false, updatedAt: now } : item));
+  setShopping(data.value.shopping.map((entry) =>
+    entry.id === id ? { ...entry, status: 'open', isNew: false, updatedAt: now } : entry));
+  const key = item.name.toLowerCase();
+  data.value.pantry = data.value.pantry.filter((entry) =>
+    !(entry.name.toLowerCase() === key && entry.boughtAt));
+  if (lastBought.value?.itemId === id) {
+    lastBought.value = null;
+    clearBoughtFeedback(id);
+  }
+  await persist();
+}
+
+/** Clears the whole Bought section without touching At home. */
+async function clearBought(): Promise<void> {
+  if (!data.value.shopping.some((entry) => entry.status === 'bought')) return;
+  const now = Date.now();
+  setShopping(data.value.shopping.map((entry) =>
+    entry.status === 'bought' ? { ...entry, status: 'removed', updatedAt: now } : entry));
+  lastBought.value = null;
+  clearBoughtFeedback();
+  await persist();
+  statusText.value = 'Bought items cleared.';
+}
+
+/** Bought rows from a previous day are cleared automatically on load. */
+function clearYesterdayBought(): void {
+  const today = keyOf(new Date());
+  const stale = new Set(data.value.shopping
+    .filter((entry) => entry.status === 'bought' && keyOf(new Date(entry.updatedAt)) < today)
+    .map((entry) => entry.id));
+  if (!stale.size) return;
+  const now = Date.now();
+  setShopping(data.value.shopping.map((entry) =>
+    stale.has(entry.id) ? { ...entry, status: 'removed', updatedAt: now } : entry));
+}
+
+/**
+ * Deleting a shopping row only ever affects that row. If it came from Running
+ * low, the matching pantry item stays and Running low is switched off.
+ */
+async function removeShopping(id: string): Promise<void> {
+  const item = data.value.shopping.find((entry) => entry.id === id);
+  if (!item) return;
+  const now = Date.now();
+  let previousLow: { id: string; low?: boolean } | undefined;
+  if (item.runningLow) {
+    const pantryItem = data.value.pantry.find(
+      (entry) => entry.name.toLowerCase() === item.name.toLowerCase(),
+    );
+    if (pantryItem) {
+      previousLow = { id: pantryItem.id, low: pantryItem.low };
+      pantryItem.low = undefined;
+    }
+  }
+  setShopping(data.value.shopping.map((entry) =>
+    entry.id === id ? { ...entry, status: 'removed', isNew: false, updatedAt: now } : entry));
+  lastShoppingRemoval.value = { item: { ...item }, previousLow };
+  shoppingNotice.value = 'Removed from your shopping list.';
   if (lastBought.value?.itemId === id) lastBought.value = null;
+  await persist();
+}
+
+/** Undo for a shopping removal restores the row and any Running low it cleared. */
+async function undoShoppingRemoval(): Promise<void> {
+  const removal = lastShoppingRemoval.value;
+  if (!removal) return;
+  const restore = removal.item;
+  setShopping(data.value.shopping.map((entry) =>
+    entry.id === restore.id ? { ...restore, updatedAt: Date.now() } : entry));
+  if (removal.previousLow) {
+    const { id, low } = removal.previousLow;
+    data.value.pantry = data.value.pantry.map((entry) =>
+      entry.id === id ? { ...entry, low } : entry);
+  }
+  lastShoppingRemoval.value = null;
+  shoppingNotice.value = '';
   await persist();
 }
 
@@ -1003,12 +1209,17 @@ async function addShopping(name: string, quantity = '', forDays: string[] = []):
     const key = itemName.toLowerCase();
     const previous = byName.get(key);
     if (previous) {
-      // Removed items stay removed; adding the same name again does not revive them.
-      if (previous.status === 'removed') continue;
+      // One row per ingredient: typing a name reopens/updates the existing row.
       const updated: ShoppingItem = {
         ...previous,
         forDays: [...new Set([...previous.forDays, ...days])].sort(),
         quantity: combineQuantities(previous.quantity, cleanQuantity) || previous.quantity,
+        source: 'user',
+        status: 'open',
+        inPlan: false,
+        isNew: undefined,
+        fromPantry: undefined,
+        runningLow: undefined,
         updatedAt: now,
       };
       if (!updated.quantity) delete updated.quantity;
@@ -1039,12 +1250,30 @@ async function editShopping(id: string, name: string, quantity = ''): Promise<vo
   if (!clean || isBasicShoppingItem(clean)) return;
   const cleanQuantity = quantity.replace(/\s+/g, ' ').trim().slice(0, 60);
   const now = Date.now();
-  setShopping(data.value.shopping.map((item) => {
-    if (item.id !== id) return item;
-    const updated: ShoppingItem = { ...item, name: clean, quantity: cleanQuantity || undefined, updatedAt: now };
+  const current = data.value.shopping.find((item) => item.id === id);
+  if (!current) return;
+  const next = data.value.shopping.filter((item) => item.id !== id);
+  const key = clean.toLowerCase();
+  const duplicate = next.find((item) => item.name.toLowerCase() === key);
+  if (duplicate) {
+    // Renaming onto an existing ingredient merges the two rows into one.
+    const merged: ShoppingItem = {
+      ...duplicate,
+      name: clean,
+      forDays: [...new Set([...duplicate.forDays, ...current.forDays])].sort(),
+      quantity: combineQuantities(duplicate.quantity, cleanQuantity) || duplicate.quantity,
+      status: duplicate.status === 'removed' && current.status === 'open' ? 'open' : duplicate.status,
+      inPlan: duplicate.inPlan || current.inPlan,
+      updatedAt: now,
+    };
+    if (!merged.quantity) delete merged.quantity;
+    next[next.indexOf(duplicate)] = merged;
+  } else {
+    const updated: ShoppingItem = { ...current, name: clean, quantity: cleanQuantity || undefined, updatedAt: now };
     if (!updated.quantity) delete updated.quantity;
-    return updated;
-  }));
+    next.push(updated);
+  }
+  setShopping(next);
   await persist();
 }
 
@@ -1417,6 +1646,9 @@ export function useDiet() {
     addPantry,
     addPantryMany,
     removePantry,
+    undoPantryRemoval,
+    pantryNotice,
+    lastPantryRemoval,
     setPantryLow,
     clearPantry,
     clearAllDietData,
@@ -1425,9 +1657,17 @@ export function useDiet() {
     setShoppingFilter,
     shoppingCountForDate,
     lastBought,
+    boughtNotice,
+    recentlyBought,
     toggleShopping,
     buyShopping,
+    untickBought,
+    clearBought,
+    clearYesterdayBought,
     removeShopping,
+    undoShoppingRemoval,
+    shoppingNotice,
+    lastShoppingRemoval,
     addShopping,
     editShopping,
     keepShopping,

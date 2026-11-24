@@ -74,6 +74,38 @@ test('merge keeps user-added, bought, removed; adds new AI as New; marks unneede
   assert.deepEqual(summary, { added: 1, noLongerNeeded: 0 });
 });
 
+test('AI adds its day to an existing running-low row instead of a second row', () => {
+  const existing = [item({
+    id: 'low', name: 'Oats', source: 'pantry', runningLow: true,
+    inPlan: false, forDays: [today],
+  })];
+  const aiItems = [item({ id: 'ai', name: ' OATS ', forDays: [weekDay] })];
+
+  const { items, summary } = mergeShoppingList(existing, aiItems, [weekDay]);
+  const rows = items.filter((entry) => entry.name.toLowerCase() === 'oats');
+
+  assert.equal(rows.length, 1, 'still one row for oats');
+  assert.deepEqual(rows[0].forDays, [today, weekDay], 'the new day is added to that row');
+  assert.equal(rows[0].status, 'open');
+  assert.equal(rows[0].source, 'pantry');
+  assert.equal(rows[0].runningLow, true);
+  assert.equal(summary.added, 0, 'no duplicate was counted as added');
+});
+
+test('normalization keeps one case-insensitive row and preserves the pantry source', () => {
+  const data = normalizeDietData({
+    shopping: [
+      item({ id: 'low', name: ' OATS ', source: 'pantry', runningLow: true }),
+      item({ id: 'ai', name: 'oats', source: 'ai' }),
+    ],
+  }, []);
+  const rows = data.shopping.filter((entry) => entry.name.toLowerCase() === 'oats');
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source, 'pantry');
+  assert.equal(rows[0].runningLow, true);
+});
+
 test('removed items are not suggested again and AI items no longer needed get Keep/Remove state', () => {
   const existing = [
     item({ id: 'r1', name: 'Rice', source: 'ai', status: 'removed', inPlan: true }),

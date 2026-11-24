@@ -36,6 +36,23 @@ test('meal edit delta keeps user/bought/removed, marks removed-needed as no long
   assert.deepEqual(summary, { added: 1, noLongerNeeded: 1 });
 });
 
+test('meal edit adds the affected day to an existing running-low row', () => {
+  const day = '2026-11-23';
+  const existing = [item({
+    id: 'low', name: 'Oats', source: 'pantry', runningLow: true,
+    inPlan: false, forDays: ['2026-11-21'],
+  })];
+
+  const { items, summary } = applyMealShoppingDelta(existing, ['oats'], [], [], [day]);
+  const rows = items.filter((entry) => entry.name.toLowerCase() === 'oats');
+
+  assert.equal(rows.length, 1, 'still one row for oats');
+  assert.deepEqual(rows[0].forDays, ['2026-11-21', day]);
+  assert.equal(rows[0].source, 'pantry');
+  assert.equal(rows[0].runningLow, true);
+  assert.equal(summary.added, 0, 'no duplicate was counted as added');
+});
+
 test('meal edit does not add items already in pantry or already present/removed', () => {
   const existing = [
     item({ id: 'r1', name: 'Rice', source: 'ai', status: 'removed' }),

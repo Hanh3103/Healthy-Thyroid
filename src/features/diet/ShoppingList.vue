@@ -18,10 +18,16 @@ const {
   setShoppingFilter,
   shoppingCountForDate,
   lastBought,
+  boughtNotice,
+  recentlyBought,
   toggleShopping,
   addShopping,
   editShopping,
+  untickBought,
+  clearBought,
   removeShopping,
+  undoShoppingRemoval,
+  shoppingNotice,
   keepShopping,
   keepAllShopping,
   removeAllNoLongerNeeded,
@@ -54,7 +60,6 @@ function weekdayLabel(day: string): string {
 }
 
 function daysLabel(days: string[]): string {
-  if (!days.length) return 'Open';
   return [...days].sort().map(weekdayLabel).join(', ');
 }
 
@@ -69,7 +74,7 @@ const pickerDays = Array.from({ length: 14 }, (_, index) => {
   };
 });
 
-const daySummary = computed(() => daysLabel(selectedDays.value));
+const daySummary = computed(() => selectedDays.value.length ? daysLabel(selectedDays.value) : 'Any day');
 
 function toggleDay(key: string): void {
   selectedDays.value = selectedDays.value.includes(key)
@@ -79,12 +84,41 @@ function toggleDay(key: string): void {
 
 /** Open AI items that are no longer part of any plan move to the collapsed section. */
 function isNoLongerNeeded(item: ShoppingItem): boolean {
-  return item.status === 'open' && item.source === 'ai' && !item.inPlan;
+  return item.status === 'open'
+    && item.source === 'ai'
+    && !item.runningLow
+    && !item.inPlan;
 }
 
-const activeItems = computed(() => shopping.value.filter(
-  (item) => item.status !== 'removed' && !isNoLongerNeeded(item),
-));
+/** Exactly one source tag per row, with Running low taking priority. */
+function sourceTag(item: ShoppingItem): string {
+  if (item.runningLow || item.source === 'pantry') return 'Running low';
+  if (item.source === 'user') return 'Added by me';
+  if (item.isNew) return 'New';
+  return '';
+}
+
+const recentBoughtSet = computed(() => new Set(recentlyBought.value));
+
+/** Open rows plus the just-ticked rows that are still showing their strike-through. */
+const activeItems = computed(() => shopping.value.filter((item) => {
+  if (item.status === 'removed' || isNoLongerNeeded(item)) return false;
+  if (item.status === 'bought') return recentBoughtSet.value.has(item.id);
+  return true;
+}));
+
+/** Everything bought, once its brief active-list linger has finished. */
+const boughtItems = computed(() => shopping.value.filter((item) =>
+  item.status === 'bought' && !recentBoughtSet.value.has(item.id)));
+
+const progress = computed(() => {
+  const relevant = shopping.value.filter((item) =>
+    item.status !== 'removed' && !isNoLongerNeeded(item));
+  return {
+    total: relevant.length,
+    bought: relevant.filter((item) => item.status === 'bought').length,
+  };
+});
 
 const noLongerNeeded = computed(() => shopping.value.filter(isNoLongerNeeded));
 
@@ -100,7 +134,8 @@ function matchesFilter(item: ShoppingItem): boolean {
 }
 
 /** Deliberately keeps the incoming order of `shopping` (already soonest first). */
-const visibleItems = computed(() => activeItems.value.filter(matchesFilter));
+const visibleItems = computed(() => activeItems.value.filter((item) =>
+  item.status === 'bought' ? true : matchesFilter(item)));
 
 const chipOptions = computed<Array<{ key: ChipKey; label: string; count: number }>>(() => [
   { key: 'all', label: 'All', count: activeItems.value.length },
@@ -169,6 +204,18 @@ function onUndoBought(): void {
   void undoBought();
 }
 
+function onUndoShoppingRemoval(): void {
+  void undoShoppingRemoval();
+}
+
+function onUntickBought(id: string): void {
+  void untickBought(id);
+}
+
+function onClearBought(): void {
+  void clearBought();
+}
+
 function onUndoMerge(): void {
   void undoShoppingMerge();
 }
@@ -190,7 +237,7 @@ function onUndoUpdate(): void {
   <section id="shopping-list-card" class="panel shopping-panel" aria-labelledby="shopping-list-heading">
     <div class="sec-head">
       <h2 id="shopping-list-heading">Shopping list</h2>
-      <span class="chip">Only what is missing</span>
+      <span class="chip progress-chip">{{ progress.bought }} of {{ progress.total }} bought</span>
     </div>
 
     <div class="shopping-filters" role="group" aria-label="Filter shopping list">
@@ -222,6 +269,16 @@ function onUndoUpdate(): void {
         <button type="button" class="link-btn" @click="onUndoUpdate">Undo</button>
       </p>
     </div>
+
+    <p v-if="shoppingNotice" class="removal-notice" role="status">
+      {{ shoppingNotice }}
+      <button type="button" class="link-btn" @click="onUndoShoppingRemoval">Undo</button>
+    </p>
+
+    <p v-if="boughtNotice" class="bought-notice" role="status">
+      {{ boughtNotice }}
+      <button v-if="lastBought" type="button" class="link-btn" @click="onUndoBought">Undo</button>
+    </p>
 
     <form class="shopping-add" @submit.prevent="add">
       <input
@@ -297,10 +354,13 @@ function onUndoUpdate(): void {
                 {{ item.name }}<span v-if="item.quantity" class="shopping-qty"> ({{ item.quantity }})</span>
               </span>
             </label>
-            <div class="shopping-meta">
-              <span class="day-tag">{{ daysLabel(item.forDays) }}</span>
-              <span v-if="item.source === 'user'" class="chip item-chip">Added by me</span>
-              <span v-if="item.isNew" class="chip item-chip is-new">New</span>
+            <div v-if="item.status !== 'bought'" class="shopping-meta">
+              <span v-if="item.forDays.length" class="day-tag">{{ daysLabel(item.forDays) }}</span>
+              <span
+                v-if="sourceTag(item)"
+                class="chip item-chip"
+                :class="{ 'is-low': sourceTag(item) === 'Running low', 'is-new': sourceTag(item) === 'New' }"
+              >{{ sourceTag(item) }}</span>
             </div>
           </div>
           <div class="shopping-actions">
@@ -312,10 +372,6 @@ function onUndoUpdate(): void {
               @click="onRemove(item.id)"
             >×</button>
           </div>
-          <p v-if="lastBought?.itemId === item.id" class="pantry-note">
-            Moved to pantry
-            <button type="button" class="link-btn" @click="onUndoBought">Undo</button>
-          </p>
         </template>
       </li>
     </ul>
@@ -333,7 +389,7 @@ function onUndoUpdate(): void {
             <span class="nl-name">
               {{ item.name }}<span v-if="item.quantity" class="shopping-qty"> ({{ item.quantity }})</span>
             </span>
-            <span class="day-tag">{{ daysLabel(item.forDays) }}</span>
+            <span v-if="item.forDays.length" class="day-tag">{{ daysLabel(item.forDays) }}</span>
             <div class="nl-row-actions">
               <button type="button" class="link-btn" @click="onKeep(item.id)">Keep</button>
               <button type="button" class="link-btn danger" @click="onRemove(item.id)">Remove</button>
@@ -342,6 +398,29 @@ function onUndoUpdate(): void {
         </ul>
       </div>
       <p v-else class="muted nl-empty">Nothing here.</p>
+    </details>
+
+    <details class="bought-section">
+      <summary class="bought-summary">Bought ({{ boughtItems.length }})</summary>
+      <div v-if="boughtItems.length" class="bought-body">
+        <div class="bought-actions">
+          <button type="button" class="mini-btn" @click="onClearBought">Clear bought</button>
+        </div>
+        <ul class="bought-list">
+          <li v-for="item in boughtItems" :key="item.id">
+            <span class="bought-name">
+              <s>{{ item.name }}</s><span v-if="item.quantity" class="shopping-qty"> ({{ item.quantity }})</span>
+            </span>
+            <button
+              type="button"
+              class="link-btn"
+              :aria-label="`Untick ${item.name}`"
+              @click="onUntickBought(item.id)"
+            >Undo</button>
+          </li>
+        </ul>
+      </div>
+      <p v-else class="muted bought-empty">Nothing bought yet.</p>
     </details>
   </section>
 </template>
@@ -354,6 +433,9 @@ function onUndoUpdate(): void {
 .shopping-empty, .nl-empty { font-size: 12px; line-height: 1.45; }
 .shopping-update { min-height: 0; }
 .shopping-update:empty { display: none; }
+.removal-notice { margin: 6px 0 0; font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bought-notice { margin: 6px 0 0; font-size: 12px; color: var(--ok, #2f855a); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.progress-chip { font-variant-numeric: tabular-nums; }
 .update-msg { margin: 6px 0 0; font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .update-msg.is-done { color: var(--ok, #2f855a); }
 .update-msg.is-error { color: var(--danger); }
@@ -389,6 +471,7 @@ function onUndoUpdate(): void {
 .day-tag { font-size: 10px; color: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius-buttons); padding: 1px 5px; white-space: nowrap; }
 .item-chip { font-size: 10px; }
 .item-chip.is-new { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.item-chip.is-low { color: var(--warn, #b7791f); border-color: color-mix(in srgb, var(--warn, #b7791f) 45%, var(--line)); }
 .shopping-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .icon-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--radius-buttons); background: transparent; color: var(--ink-2); font-size: 15px; line-height: 1; cursor: pointer; }
 .icon-btn:hover { border-color: var(--line); background: var(--surface); color: var(--ink); }
@@ -403,4 +486,13 @@ function onUndoUpdate(): void {
 .nl-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface-2) 35%, transparent); font-size: 12px; }
 .nl-name { overflow-wrap: anywhere; }
 .nl-row-actions { display: flex; gap: 8px; margin-left: auto; }
+.bought-section { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.bought-summary { cursor: pointer; font-size: 12px; color: var(--ink-2); }
+.bought-body { margin-top: 8px; }
+.bought-actions { display: flex; justify-content: flex-end; }
+.bought-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.bought-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface-2) 35%, transparent); font-size: 12px; }
+.bought-name { overflow-wrap: anywhere; color: var(--ink-2); }
+.bought-list .link-btn { margin-left: auto; }
+.bought-empty { font-size: 12px; line-height: 1.45; }
 </style>

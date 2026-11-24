@@ -180,6 +180,18 @@ test('adding items splits commas, keeps quantity and days, and drops pantry basi
   assert.ok(!findItem(diet, 'pepper'), 'pepper is never added');
 });
 
+test('editing a row onto an existing ingredient merges into one row', async () => {
+  const diet = seedDay();
+  await diet.editShopping('s2', ' PASTA ', '2 cups');
+  const rows = diet.shopping.value.filter((item) => item.name.toLowerCase() === 'pasta');
+
+  assert.equal(rows.length, 1, 'renaming does not create a second pasta row');
+  assert.equal(rows[0].id, 's1', 'the existing ingredient row is kept');
+  assert.equal(rows[0].quantity, '2 cups');
+  assert.deepEqual(rows[0].forDays, [today]);
+  assert.equal(diet.shopping.value.some((item) => item.id === 's2'), false);
+});
+
 test('editing an item never lets it become a pantry basic', async () => {
   const diet = seedDay();
   const before = shopping(diet);

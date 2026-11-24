@@ -114,7 +114,8 @@ export interface ShoppingItem {
   quantity?: string;
   /** Planned dates that need this item. Empty means an open, self-added item. */
   forDays: string[];
-  source: 'ai' | 'user';
+  /** Where the row came from: AI plan, my own input, or the At home Running low toggle. */
+  source: 'ai' | 'user' | 'pantry';
   status: 'open' | 'bought' | 'removed';
   inPlan: boolean;
   isNew?: boolean;
@@ -286,7 +287,7 @@ export interface RangeRequest {
   log: ActualEntry[];
   alarmingSymptoms: boolean;
   hint?: DietContext;
-  currentShopping?: { name: string; status: 'open' | 'bought' | 'removed'; inPlan: boolean; source: 'ai' | 'user' }[];
+  currentShopping?: { name: string; status: 'open' | 'bought' | 'removed'; inPlan: boolean; source: 'ai' | 'user' | 'pantry' }[];
 }
 
 export interface RangeInput {
@@ -640,7 +641,9 @@ function mergeShoppingEntries(current: ShoppingItem | undefined, next: ShoppingI
     ...current,
     forDays: [...new Set([...shoppingDays(current), ...shoppingDays(next)])].sort(),
     quantity: combineQuantities(current.quantity, next.quantity),
-    source: current.source === 'user' || next.source === 'user' ? 'user' : 'ai',
+    source: current.source === 'pantry' || next.source === 'pantry'
+      ? 'pantry'
+      : current.source === 'user' || next.source === 'user' ? 'user' : 'ai',
     status,
     // A line is active when any of its days still needs it.
     inPlan: current.inPlan || next.inPlan,
@@ -667,7 +670,7 @@ export function sortShoppingItems(items: ShoppingItem[]): ShoppingItem[] {
 /** Active items needed on one date, including days chosen for self-added items. */
 export function countShoppingForDate(items: ShoppingItem[], date: string): number {
   return items.filter((item) => item.status === 'open'
-    && (item.inPlan || item.source === 'user')
+    && (item.inPlan || item.source === 'user' || item.source === 'pantry')
     && shoppingDays(item).includes(date)).length;
 }
 
@@ -680,7 +683,7 @@ function normalizeShopping(value: unknown): ShoppingItem[] {
     const rec = isRecord(entry) ? entry : {};
     const checked = rec.checked === true;
     const status = oneOf(rec.status, ['open', 'bought', 'removed'] as const, checked ? 'bought' : 'open');
-    const source = oneOf(rec.source, ['ai', 'user'] as const, 'ai');
+    const source = oneOf(rec.source, ['ai', 'user', 'pantry'] as const, 'ai');
     const now = Date.now();
     const next: ShoppingItem = {
       id: cleanText(rec.id, 60) || newId(),
@@ -1003,7 +1006,7 @@ export function clearMealDataForDates(
   });
   data.log = data.log.filter((entry) => !targets.has(entry.date));
   data.shopping = data.shopping.map((item) => {
-    if (item.source === 'user') return item;
+    if (item.source === 'user' || item.source === 'pantry') return item;
     const forDays = shoppingDays(item).filter((day) => !targets.has(day));
     return forDays.length === shoppingDays(item).length ? item : { ...item, forDays };
   });
@@ -1528,12 +1531,21 @@ export function mergeShoppingList(
 
   for (const item of existing) {
     const key = lower(item.name);
-    // Bought, removed and self-added items are never changed by regeneration.
-    if (item.status === 'removed' || item.status === 'bought' || item.source === 'user') {
-      result.push(item);
+    const aiItem = aiByName.get(key);
+    // Bought, removed and self-added rows keep their status/source, but a fresh
+    // AI need still adds its day to that one row instead of creating a second.
+    if (item.status === 'removed' || item.status === 'bought'
+      || item.source === 'user' || item.source === 'pantry') {
+      if (!aiItem) {
+        result.push(item);
+        continue;
+      }
+      const forDays = [...new Set([...shoppingDays(item), ...shoppingDays(aiItem)])].sort();
+      result.push(forDays.length === shoppingDays(item).length
+        ? item
+        : { ...item, forDays, updatedAt: now });
       continue;
     }
-    const aiItem = aiByName.get(key);
     const next: ShoppingItem = { ...item, isNew: false, updatedAt: now };
     if (scope.size) {
       const keptDays = shoppingDays(item).filter((day) => !scope.has(day));
@@ -1592,8 +1604,14 @@ export function applyMealShoppingDelta(
 
   const items = existing.map((item) => {
     const key = lower(item.name);
-    if (item.status === 'removed' || item.status === 'bought' || item.source === 'user') {
-      return item;
+    if (item.status === 'removed' || item.status === 'bought'
+      || item.source === 'user' || item.source === 'pantry') {
+      if (!addSet.has(key) || !affectedDates.length) return item;
+      const current = shoppingDays(item);
+      const forDays = [...new Set([...current, ...affectedDates])].sort();
+      return forDays.length === current.length
+        ? item
+        : { ...item, forDays, updatedAt: now };
     }
     let forDays = shoppingDays(item);
     let inPlan = item.inPlan;
@@ -1646,7 +1664,7 @@ export function markBought(
   const existing = pantry.find((entry) => lower(entry.name) === lower(item.name));
   const nextPantry = existing
     ? pantry.map((entry) => entry.id === existing.id
-      ? { ...entry, source: 'shopping' as const, boughtAt: entry.boughtAt ?? now }
+      ? { ...entry, low: undefined, source: 'shopping' as const, boughtAt: entry.boughtAt ?? now }
       : entry)
     : [...pantry, {
       id: newId(),
@@ -1658,7 +1676,9 @@ export function markBought(
   return {
     pantry: nextPantry,
     shopping: shopping.map((entry) =>
-      entry.id === itemId ? { ...entry, status: 'bought', updatedAt: now } : entry),
+      entry.id === itemId
+        ? { ...entry, status: 'bought', runningLow: undefined, updatedAt: now }
+        : entry),
   };
 }
 
