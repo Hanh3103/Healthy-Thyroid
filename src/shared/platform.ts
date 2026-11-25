@@ -39,6 +39,23 @@ export async function tauriInvoke<T>(command: string, args: Record<string, unkno
   return invoke<T>(command, args);
 }
 
+/** Subscribes to a Tauri event and returns an unlisten callback. */
+export async function tauriListen<T = unknown>(
+  event: string,
+  handler: (payload: T) => void,
+): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    if (typeof listen === 'function') {
+      return await listen<T>(event, (ev) => handler(ev.payload));
+    }
+    return () => {};
+  } catch {
+    return () => {};
+  }
+}
+
 /** Browser fallback: read and parse JSON from localStorage. */
 export function localLoad<T>(key: string): T | null {
   try {

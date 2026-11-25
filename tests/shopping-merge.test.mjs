@@ -7,7 +7,7 @@ import {
   normalizeDietData,
   storeRangePlanInDays,
 } from '../src/features/diet/model.ts';
-import { DEFAULT_DIET_SETTINGS } from '../src/features/profile/dietSettings.ts';
+import { DEFAULT_DIET_SETTINGS } from '../src/features/profile/model.ts';
 
 const now = new Date(2026, 10, 21, 12, 0, 0);
 const today = '2026-11-21';

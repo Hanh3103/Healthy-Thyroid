@@ -6,70 +6,145 @@ import AppInput from '../../shared/ui/AppInput.vue';
 import AppNumberInput from '../../shared/ui/AppNumberInput.vue';
 import { requestConfirm } from '../../shared/ui/useConfirm';
 import { useAiStatus } from '../../shared/ai/useAiStatus';
+import { useAiStore } from '../../stores/ai';
 import {
+  AI_PROVIDER_OPTIONS,
   MODEL_SUGGESTIONS,
   endpointError,
+  presetFor,
   type AIProvider,
-} from '../profile/model';
-import { useProfile } from '../profile/useProfile';
+} from '../../shared/ai/model';
 import { registerSettingsDraft } from './unsaved';
+import type { SaveAiConfigPartialInput } from '../../shared/ai/aiStatus';
 
-const profile = useProfile();
+const store = useAiStore();
 const ai = useAiStatus();
+
 const busy = ai.busy;
 const failureReason = ai.failureReason;
-const { draft, apiKeyInput, credentials, status, options, replacingKey } = profile;
 
+const status = ref('');
 const advancedOpen = ref(false);
 const testMessage = ref('');
-const enabledDraft = ref(ai.status.value.enabled);
-const limitDraft = ref(ai.status.value.dailyLimit);
+const apiKeyInput = ref('');
+const replacingKey = ref(false);
+const options = AI_PROVIDER_OPTIONS;
 
-interface DraftSnapshot {
+// Draft fields that require Save: provider, model, daily limit, endpoint
+interface DraftFields {
   provider: AIProvider;
   endpoint: string;
   model: string;
-  enabled: boolean;
   dailyLimit: number;
-  apiKey: string;
-  replacingKey: boolean;
 }
 
-function snapshot(): DraftSnapshot {
-  return {
-    provider: draft.value.provider,
-    endpoint: draft.value.endpoint,
-    model: draft.value.model,
-    enabled: enabledDraft.value,
-    dailyLimit: limitDraft.value,
-    apiKey: apiKeyInput.value,
-    replacingKey: replacingKey.value,
-  };
-}
+const baseline = ref<DraftFields>({
+  provider: store.provider,
+  endpoint: store.endpoint,
+  model: store.model,
+  dailyLimit: store.dailyLimit,
+});
 
-const saved = ref<DraftSnapshot>(snapshot());
-const dirty = computed(() => JSON.stringify(snapshot()) !== JSON.stringify(saved.value));
-const modelSuggestions = computed(() => MODEL_SUGGESTIONS[draft.value.provider]);
-const endpointIssue = computed(() => endpointError(draft.value.provider, draft.value.endpoint));
-const limitIssue = computed(() =>
-  limitDraft.value >= 1 && limitDraft.value <= 1000 ? '' : 'Choose a limit between 1 and 1000 calls.');
+const draft = ref<DraftFields>({
+  provider: store.provider,
+  endpoint: store.endpoint,
+  model: store.model,
+  dailyLimit: store.dailyLimit,
+});
 
-function restoreDraft(message?: string): void {
-  draft.value = {
-    provider: saved.value.provider,
-    endpoint: saved.value.endpoint,
-    model: saved.value.model,
-  };
-  enabledDraft.value = saved.value.enabled;
-  limitDraft.value = saved.value.dailyLimit;
-  apiKeyInput.value = '';
-  profile.cancelReplaceKey();
-  if (message) status.value = message;
+// Set of field names that the user has actively edited
+const editedFields = ref(new Set<keyof DraftFields | 'apiKey'>());
+
+function markEdited(field: keyof DraftFields | 'apiKey'): void {
+  editedFields.value.add(field);
 }
 
 function selectProvider(provider: AIProvider): void {
-  profile.selectProvider(provider);
+  const preset = presetFor(provider);
+  draft.value.provider = provider;
+  markEdited('provider');
+  if (preset) {
+    draft.value.endpoint = preset.endpoint;
+    draft.value.model = preset.model;
+    markEdited('endpoint');
+    markEdited('model');
+  }
   advancedOpen.value = false;
+}
+
+// Keep unedited draft fields in sync if the store changes while the page is open
+watch(
+  () => [store.provider, store.endpoint, store.model, store.dailyLimit],
+  ([p, ep, m, dl]) => {
+    if (!editedFields.value.has('provider')) {
+      draft.value.provider = p as AIProvider;
+      baseline.value.provider = p as AIProvider;
+    }
+    if (!editedFields.value.has('endpoint')) {
+      draft.value.endpoint = ep as string;
+      baseline.value.endpoint = ep as string;
+    }
+    if (!editedFields.value.has('model')) {
+      draft.value.model = m as string;
+      baseline.value.model = m as string;
+    }
+    if (!editedFields.value.has('dailyLimit')) {
+      draft.value.dailyLimit = dl as number;
+      baseline.value.dailyLimit = dl as number;
+    }
+  }
+);
+
+const isProviderDirty = computed(() =>
+  editedFields.value.has('provider') && draft.value.provider !== baseline.value.provider);
+const isModelDirty = computed(() =>
+  editedFields.value.has('model') && draft.value.model !== baseline.value.model);
+const isEndpointDirty = computed(() =>
+  editedFields.value.has('endpoint') && draft.value.endpoint !== baseline.value.endpoint);
+const isLimitDirty = computed(() =>
+  editedFields.value.has('dailyLimit') && draft.value.dailyLimit !== baseline.value.dailyLimit);
+const isKeyDirty = computed(() =>
+  apiKeyInput.value.trim().length > 0 || replacingKey.value);
+
+const dirty = computed(() =>
+  isProviderDirty.value || isModelDirty.value || isEndpointDirty.value || isLimitDirty.value || isKeyDirty.value);
+
+const modelSuggestions = computed(() => MODEL_SUGGESTIONS[draft.value.provider]);
+const endpointIssue = computed(() => endpointError(draft.value.provider, draft.value.endpoint));
+const limitIssue = computed(() =>
+  draft.value.dailyLimit >= 1 && draft.value.dailyLimit <= 1000
+    ? ''
+    : 'Choose a limit between 1 and 1000 calls.');
+
+function startReplaceKey(): void {
+  replacingKey.value = true;
+  apiKeyInput.value = '';
+  markEdited('apiKey');
+}
+
+function cancelReplaceKey(): void {
+  replacingKey.value = false;
+  apiKeyInput.value = '';
+  editedFields.value.delete('apiKey');
+}
+
+function restoreDraft(message?: string): void {
+  draft.value = {
+    provider: store.provider,
+    endpoint: store.endpoint,
+    model: store.model,
+    dailyLimit: store.dailyLimit,
+  };
+  baseline.value = { ...draft.value };
+  apiKeyInput.value = '';
+  replacingKey.value = false;
+  editedFields.value.clear();
+  if (message) status.value = message;
+}
+
+async function onSwitch(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  await store.setEnabled(input.checked);
 }
 
 async function save(): Promise<void> {
@@ -82,21 +157,42 @@ async function save(): Promise<void> {
     status.value = `AI settings not saved: ${limitIssue.value}`;
     return;
   }
-  await profile.save();
-  if (enabledDraft.value !== ai.status.value.enabled) await ai.setEnabled(enabledDraft.value);
-  if (limitDraft.value !== ai.status.value.dailyLimit) await ai.setDailyLimit(limitDraft.value);
-  await ai.refresh();
-  testMessage.value = ai.testResult.value;
-  saved.value = snapshot();
+
+  const partial: SaveAiConfigPartialInput = {};
+  if (isProviderDirty.value) partial.provider = draft.value.provider;
+  if (isModelDirty.value) partial.model = draft.value.model;
+  if (isEndpointDirty.value) partial.endpoint = draft.value.endpoint;
+  if (isLimitDirty.value) partial.dailyLimit = draft.value.dailyLimit;
+  if (apiKeyInput.value.trim()) partial.key = apiKeyInput.value.trim();
+
+  if (Object.keys(partial).length > 0) {
+    await store.savePartial(partial);
+  }
+
+  baseline.value = {
+    provider: store.provider,
+    endpoint: store.endpoint,
+    model: store.model,
+    dailyLimit: store.dailyLimit,
+  };
+  draft.value = { ...baseline.value };
+  apiKeyInput.value = '';
+  replacingKey.value = false;
+  editedFields.value.clear();
+
+  testMessage.value = store.testResult;
+  status.value = store.configured
+    ? 'AI configuration saved.'
+    : 'AI configuration saved, but an API key is still required.';
 }
 
 async function test(): Promise<void> {
   try {
-    await ai.testConnection();
+    await store.testConnection();
   } catch {
     // The inline result and header dot already explain the failure.
   }
-  testMessage.value = ai.testResult.value;
+  testMessage.value = store.testResult;
 }
 
 async function deleteKey(): Promise<void> {
@@ -110,17 +206,12 @@ async function deleteKey(): Promise<void> {
     tone: 'danger',
   });
   if (!confirmed) return;
-  await profile.deleteKey();
-  await ai.refresh();
-  saved.value = snapshot();
+  await store.deleteKey();
+  apiKeyInput.value = '';
+  replacingKey.value = false;
+  editedFields.value.delete('apiKey');
   status.value = 'API key removed from OS keychain.';
 }
-
-watch(() => ai.status.value, (next) => {
-  if (dirty.value) return;
-  enabledDraft.value = next.enabled;
-  limitDraft.value = next.dailyLimit;
-});
 
 const unregister = registerSettingsDraft('ai', {
   isDirty: () => dirty.value,
@@ -128,11 +219,14 @@ const unregister = registerSettingsDraft('ai', {
 });
 
 onMounted(async () => {
-  await profile.init();
-  await ai.refresh();
-  enabledDraft.value = ai.status.value.enabled;
-  limitDraft.value = ai.status.value.dailyLimit;
-  saved.value = snapshot();
+  await store.load();
+  baseline.value = {
+    provider: store.provider,
+    endpoint: store.endpoint,
+    model: store.model,
+    dailyLimit: store.dailyLimit,
+  };
+  draft.value = { ...baseline.value };
 });
 
 onUnmounted(unregister);
@@ -142,8 +236,8 @@ onUnmounted(unregister);
   <div class="settings-section">
     <div class="sec-head">
       <h2>AI settings</h2>
-      <span class="chip" :class="{ 'chip-ok': credentials?.configured }">
-        {{ credentials?.configured ? 'Configured' : 'Not configured' }}
+      <span class="chip" :class="{ 'chip-ok': store.configured }">
+        {{ store.configured ? 'Configured' : 'Not configured' }}
       </span>
     </div>
     <p class="muted">
@@ -167,6 +261,7 @@ onUnmounted(unregister);
           list="ai-model-suggestions"
           placeholder="e.g. gemini-3.5-flash-lite"
           autocomplete="off"
+          @input="markEdited('model')"
         />
         <datalist id="ai-model-suggestions">
           <option v-for="model in modelSuggestions" :key="model" :value="model"></option>
@@ -175,10 +270,10 @@ onUnmounted(unregister);
         <div v-if="draft.provider === 'ollama'" class="key-saved-container">
           <span class="muted">Ollama runs locally and does not require an API key.</span>
         </div>
-        <div v-else-if="credentials?.hasStoredKey && !replacingKey" class="key-saved-container">
+        <div v-else-if="store.hasKey && !replacingKey" class="key-saved-container">
           <span class="key-saved-line">Key saved in OS keychain</span>
           <div class="key-btn-group">
-            <AppButton size="sm" @click="profile.startReplaceKey">Replace</AppButton>
+            <AppButton size="sm" @click="startReplaceKey">Replace</AppButton>
             <AppButton size="sm" @click="deleteKey">Delete</AppButton>
           </div>
         </div>
@@ -190,25 +285,33 @@ onUnmounted(unregister);
             type="password"
             placeholder="Paste your API key"
             autocomplete="off"
+            @input="markEdited('apiKey')"
           />
-          <AppButton v-if="credentials?.hasStoredKey" size="sm" @click="profile.cancelReplaceKey">
+          <AppButton v-if="store.hasKey" size="sm" @click="cancelReplaceKey">
             Cancel replacement
           </AppButton>
         </div>
 
         <label class="ai-switch-row settings-switch-row">
           <span>AI suggestions</span>
-          <input v-model="enabledDraft" class="ai-switch" type="checkbox"
-            aria-label="AI suggestions" />
+          <input
+            class="ai-switch"
+            type="checkbox"
+            :checked="store.enabled"
+            :disabled="store.busy"
+            aria-label="AI suggestions"
+            @change="onSwitch"
+          />
         </label>
 
         <AppNumberInput
           id="ai-daily-limit"
-          v-model="limitDraft"
+          v-model="draft.dailyLimit"
           label="Daily call limit"
           :min="1"
           :max="1000"
           :step="1"
+          @update:model-value="markEdited('dailyLimit')"
         />
       </div>
 
@@ -220,6 +323,7 @@ onUnmounted(unregister);
           label="Endpoint"
           placeholder="https://…"
           inputmode="url"
+          @input="markEdited('endpoint')"
         />
         <p v-if="endpointIssue" class="field-error" role="alert">{{ endpointIssue }}</p>
         <p v-else class="muted">Checked against the provider allowlist before every AI call.</p>

@@ -33,10 +33,10 @@ const aiReply = () => JSON.stringify([
 mock.module('@tauri-apps/api/core', {
   namedExports: {
     invoke: async (command, args) => {
-      if (command === 'get_ai_credentials_status') {
-        return JSON.stringify(aiMode === 'missing'
-          ? { configured: false, source: 'none', provider: '', model: '' }
-          : { configured: true, source: 'app_data', provider: 'ollama', model: 'llama3.2' });
+      if (command === 'ai_status') {
+        return aiMode === 'missing'
+          ? { configured: false, enabled: true, hasKey: false, provider: '', model: '' }
+          : { configured: true, enabled: true, hasKey: true, provider: 'ollama', model: 'llama3.2' };
       }
       if (command === 'load_planner') return null;
       if (command === 'save_planner') return undefined;

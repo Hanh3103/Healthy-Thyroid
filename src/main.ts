@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import { router } from './router';
 import { applyPreferences, loadPreferences } from './features/settings/preferences';
+import { useAiStore } from './stores/ai';
 import './assets/element-plus.css';
 import './assets/main.css';
 
@@ -14,5 +15,7 @@ const pinia = createPinia();
 
 app.use(pinia);
 app.use(router);
+
+void useAiStore().load();
 
 app.mount('#app');

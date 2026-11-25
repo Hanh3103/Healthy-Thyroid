@@ -8,7 +8,7 @@ import {
   normalizeDietAiReply,
 } from '../src/features/diet/ai.ts';
 import { DIET_SYSTEM_PROMPT } from '../src/features/diet/model.ts';
-import { normalizeDietSettings } from '../src/features/profile/dietSettings.ts';
+import { normalizeDietSettings } from '../src/features/profile/model.ts';
 
 const TODAY = '2026-11-22';
 const TOMORROW = '2026-11-23';

@@ -47,7 +47,7 @@ import { useAiStatus } from '../../shared/ai/useAiStatus';
 import { keyOf } from '../../shared/utils';
 import { requestConfirm } from '../../shared/ui/useConfirm';
 import { removeHabitConfirm } from '../../shared/ui/confirmCopy';
-import { getAiCredentialsStatus } from '../profile/api';
+import { getAiStatus } from '../../shared/ai/aiStatus';
 import {
   buildPrompt,
   estimateHeuristic,
@@ -207,7 +207,7 @@ async function refreshAiConfig(): Promise<AiConfigView> {
     return aiConfig.value;
   }
   try {
-    aiConfig.value = describeAiConfig(await getAiCredentialsStatus(), true);
+    aiConfig.value = describeAiConfig(await getAiStatus(), true);
   } catch {
     aiConfig.value = unknownAiConfig();
   }

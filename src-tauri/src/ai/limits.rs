@@ -99,6 +99,7 @@ pub fn acquire_request_permit<R: Runtime>(app: &AppHandle<R>) -> Result<RequestP
         limits.call_count = 0;
         save_limits(app, &limits);
     } else if limits.call_count >= limits.daily_limit {
+        crate::ai::config::notify_ai_config_changed(app);
         return Err(format!(
             "Daily AI call limit reached ({} requests). Resets tomorrow.",
             limits.daily_limit
@@ -119,6 +120,7 @@ pub fn record_successful_call<R: Runtime>(app: &AppHandle<R>) {
         limits.call_count += 1;
     }
     save_limits(app, &limits);
+    crate::ai::config::notify_ai_config_changed(app);
 }
 
 /// Set AI enabled / disabled flag.
@@ -126,6 +128,7 @@ pub fn set_ai_enabled<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     let mut limits = load_limits(app);
     limits.enabled = enabled;
     save_limits(app, &limits);
+    crate::ai::config::notify_ai_config_changed(app);
 }
 
 /// Check if AI is enabled.
@@ -146,4 +149,5 @@ pub fn set_daily_limit<R: Runtime>(app: &AppHandle<R>, limit: u32) {
     let mut limits = load_limits(app);
     limits.daily_limit = limit.clamp(1, 1000);
     save_limits(app, &limits);
+    crate::ai::config::notify_ai_config_changed(app);
 }

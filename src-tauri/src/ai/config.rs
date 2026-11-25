@@ -3,7 +3,7 @@
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::commands::storage;
 use super::client::{
@@ -98,6 +98,11 @@ pub fn get_key<R: Runtime>(app: &AppHandle<R>) -> Result<String, String> {
     Ok(String::new())
 }
 
+/// Emits an event to all Tauri webviews notifying that AI configuration or status changed.
+pub fn notify_ai_config_changed<R: Runtime>(app: &AppHandle<R>) {
+    let _ = app.emit("ai-config-changed", ());
+}
+
 /// Delete the API key from the OS keychain.
 pub fn delete_key<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     if let Ok(entry) = keyring_entry() {
@@ -112,6 +117,7 @@ pub fn delete_key<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             let _ = storage::save_json(app, LEGACY_CREDENTIALS_FILE, &val.to_string());
         }
     }
+    notify_ai_config_changed(app);
     Ok(())
 }
 
@@ -239,24 +245,43 @@ pub fn get_status<R: Runtime>(app: &AppHandle<R>) -> Result<AiStatusOutput, Stri
     })
 }
 
-/// Save AI configuration and optionally key.
+/// Save AI configuration and optionally key, supporting partial updates.
 pub fn save_ai_config_handler<R: Runtime>(
     app: &AppHandle<R>,
-    provider: String,
-    model: String,
+    provider: Option<String>,
+    model: Option<String>,
     endpoint: Option<String>,
     key: Option<String>,
     enabled: Option<bool>,
+    daily_limit: Option<u32>,
 ) -> Result<AiStatusOutput, String> {
     let mut current = load_config(app);
-    current.provider = provider.trim().to_string();
-    current.model = model.trim().to_string();
+    let mut modified = false;
 
-    if let Some(ep) = endpoint {
-        if !ep.trim().is_empty() {
-            current.endpoint = ep.trim().to_string();
+    if let Some(p) = provider {
+        let trimmed = p.trim().to_string();
+        if !trimmed.is_empty() && trimmed != current.provider {
+            current.provider = trimmed;
+            modified = true;
         }
     }
+
+    if let Some(m) = model {
+        let trimmed = m.trim().to_string();
+        if !trimmed.is_empty() && trimmed != current.model {
+            current.model = trimmed;
+            modified = true;
+        }
+    }
+
+    if let Some(ep) = endpoint {
+        let trimmed = ep.trim().to_string();
+        if !trimmed.is_empty() && trimmed != current.endpoint {
+            current.endpoint = trimmed;
+            modified = true;
+        }
+    }
+
     if current.endpoint.trim().is_empty() {
         current.endpoint = match current.provider.as_str() {
             "gemini" => DEFAULT_GEMINI_ENDPOINT.to_string(),
@@ -264,9 +289,12 @@ pub fn save_ai_config_handler<R: Runtime>(
             "ollama" => DEFAULT_OLLAMA_ENDPOINT.to_string(),
             _ => DEFAULT_OPENAI_ENDPOINT.to_string(),
         };
+        modified = true;
     }
 
-    save_config(app, &current)?;
+    if modified {
+        save_config(app, &current)?;
+    }
 
     if let Some(k) = key {
         let trimmed = k.trim();
@@ -275,9 +303,14 @@ pub fn save_ai_config_handler<R: Runtime>(
         }
     }
 
+    if let Some(dl) = daily_limit {
+        super::limits::set_daily_limit(app, dl);
+    }
+
     if let Some(en) = enabled {
         set_ai_enabled(app, en);
     }
 
+    notify_ai_config_changed(app);
     get_status(app)
 }

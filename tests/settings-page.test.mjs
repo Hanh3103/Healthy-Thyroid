@@ -17,8 +17,8 @@ const privacySection = read('../src/features/settings/PrivacySettingsSection.vue
 const aboutSection = read('../src/features/settings/AboutSettingsSection.vue');
 const profileView = read('../src/views/ProfileView.vue');
 const useProfile = read('../src/features/profile/useProfile.ts');
-const profileModel = read('../src/features/profile/model.ts');
-const aiStatus = read('../src/features/profile/aiStatus.ts');
+const aiModel = read('../src/shared/ai/model.ts');
+const aiStatus = read('../src/shared/ai/aiStatus.ts');
 const useAiStatus = read('../src/shared/ai/useAiStatus.ts');
 const preferences = read('../src/features/settings/preferences.ts');
 const settingsModel = read('../src/features/settings/model.ts');
@@ -83,16 +83,16 @@ test('AI settings contain provider, model suggestions, keychain actions and endp
   assert.match(aiSection, /id="ai-model"/);
   assert.match(aiSection, /list="ai-model-suggestions"/);
   assert.match(aiSection, /<datalist id="ai-model-suggestions">/);
-  assert.match(profileModel, /export const MODEL_SUGGESTIONS/);
-  assert.match(profileModel, /gemini-3\.5-flash-lite/);
+  assert.match(aiModel, /export const MODEL_SUGGESTIONS/);
+  assert.match(aiModel, /gemini-3\.5-flash-lite/);
   assert.match(aiSection, /Key saved in OS keychain/);
   assert.match(aiSection, />Replace<\/AppButton>/);
   assert.match(aiSection, /@click="deleteKey"/);
   assert.match(aiSection, /type="password"/);
   assert.match(aiSection, /<details class="settings-advanced"/);
   assert.match(aiSection, /id="ai-endpoint"/);
-  assert.match(profileModel, /export function endpointError/);
-  assert.match(profileModel, /generativelanguage\.googleapis\.com/);
+  assert.match(aiModel, /export function endpointError/);
+  assert.match(aiModel, /generativelanguage\.googleapis\.com/);
   assert.match(aiSection, /Your key is stored in the OS keychain\. It is never kept in the app's browser storage\./);
   assert.doesNotMatch(aiSection, /apiKeyMasked/);
   assert.match(aiSection, /Save AI settings/);
@@ -104,17 +104,16 @@ test('deleting the saved key uses the custom confirm dialog', () => {
   assert.match(aiSection, /requestConfirm\(\{/);
   assert.match(aiSection, /title: 'Remove the saved key\?'/);
   assert.match(aiSection, /tone: 'danger'/);
-  assert.match(useProfile, /apiKeyInput\.value = '';/);
+  assert.match(aiSection, /apiKeyInput\.value = '';/);
 });
 
 test('the daily limit and enabled switch are saved and reflected in the header', () => {
   assert.match(aiSection, /Daily call limit/);
-  assert.match(aiSection, /v-model="enabledDraft"/);
-  assert.match(aiSection, /ai\.setDailyLimit\(limitDraft\.value\)/);
-  assert.match(aiSection, /ai\.setEnabled\(enabledDraft\.value\)/);
-  assert.match(aiSection, /await ai\.refresh\(\)/);
+  assert.match(aiSection, /:checked="store\.enabled"/);
+  assert.match(aiSection, /store\.setEnabled/);
+  assert.match(aiSection, /dailyLimit/);
   assert.match(aiStatus, /set_ai_daily_limit/);
-  assert.match(useAiStatus, /async function setDailyLimit/);
+  assert.match(useAiStatus, /setDailyLimit/);
   assert.match(limits, /daily_limit: u32/);
   assert.match(limits, /pub fn set_daily_limit/);
   assert.match(aiModule, /pub async fn set_ai_daily_limit/);
@@ -126,6 +125,7 @@ test('the old AI provider card is gone from Profile', () => {
   assert.doesNotMatch(profileView, /ai-settings-heading/);
   assert.doesNotMatch(profileView, /Save AI settings/);
   assert.match(profileView, /Application settings live in <RouterLink to="\/settings">Settings/);
+  assert.doesNotMatch(useProfile, /AIConfig|AIProvider|apiKey|useAiStatus/);
 });
 
 test('appearance and language sections save shared, whole-app preferences', () => {

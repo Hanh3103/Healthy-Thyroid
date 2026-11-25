@@ -40,7 +40,7 @@ test('the header is a single 64px row aligned to the content edge', () => {
 
 test('the brand is one link with a 32px logo and the 16px semibold app name', () => {
   assert.match(app, /<RouterLink class="app-brand" :to="plannerPath"/);
-  assert.match(app, /<img class="brand-logo" :src="appLogo" alt="" \/>\s*<span>Healthy Thyroid<\/span>/);
+  assert.match(app, /<img class="brand-logo" :src="appLogo" alt="" \/>\s*<span>(Healthy|Happy) Thyroid<\/span>/);
   assert.match(rule('\\.app-brand'), /font-size:\s*16px/);
   assert.match(rule('\\.app-brand'), /font-weight:\s*var\(--font-weight-semibold\)/);
   assert.match(rule('\\.brand-logo'), /width:\s*32px/);

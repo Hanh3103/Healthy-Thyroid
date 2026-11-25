@@ -68,8 +68,6 @@ pub fn run() {
             // Profile
             commands::profile::load_profile,
             commands::profile::save_profile,
-            commands::profile::get_ai_credentials_status,
-            commands::profile::save_ai_credentials,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

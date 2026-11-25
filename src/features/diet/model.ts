@@ -19,7 +19,7 @@ import {
   normalizeDietSettings,
   splitProfileList,
   type DietSettings,
-} from '../profile/dietSettings.ts';
+} from '../profile/model.ts';
 
 export type DietEnergy = 'low' | 'medium' | 'high';
 export type Busyness = 'light' | 'normal' | 'packed';

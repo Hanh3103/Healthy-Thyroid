@@ -15,7 +15,7 @@ import {
   type SymptomSeverity,
 } from '../planner/model.ts';
 import { symptomsFromNote } from '../planner/checkin.ts';
-import { splitProfileList, type DietSettings } from '../profile/dietSettings.ts';
+import { splitProfileList, type DietSettings } from '../profile/model.ts';
 import {
   DIET_SYSTEM_PROMPT,
   extractDietObject,

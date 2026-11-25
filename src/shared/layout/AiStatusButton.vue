@@ -7,7 +7,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { providerLabel } from '../../features/profile/aiStatus';
+import { providerLabel } from '../ai/aiStatus';
 import { useAiStatus } from '../ai/useAiStatus';
 
 const {

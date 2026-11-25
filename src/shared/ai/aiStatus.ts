@@ -1,11 +1,11 @@
 /**
- * Full AI status boundary for the header popover.
+ * Full AI status boundary for the header popover and Settings.
  *
  * Rust owns the API key, the on/off flag and the daily call counter. This
  * module only reads the key-free status and toggles the switch, so the raw
  * key is never fetched into Vue.
  */
-import { isTauri, tauriInvoke } from '../../shared/platform.ts';
+import { isTauri, tauriInvoke } from '../platform.ts';
 import { AI_PROVIDER_OPTIONS, type AIProvider } from './model.ts';
 
 export interface AiStatus {
@@ -15,6 +15,7 @@ export interface AiStatus {
   provider: AIProvider;
   model: string;
   endpoint: string;
+  apiKeyMasked: string;
   callCount: number;
   dailyLimit: number;
 }
@@ -40,6 +41,7 @@ export function defaultAiStatus(): AiStatus {
     provider: 'gemini',
     model: GEMINI_MODEL,
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
+    apiKeyMasked: '',
     callCount: 0,
     dailyLimit: DEFAULT_LIMIT,
   };
@@ -74,9 +76,36 @@ export function normalizeAiStatus(raw: unknown): AiStatus {
     provider: asProvider(value.provider),
     model,
     endpoint: typeof value.endpoint === 'string' ? value.endpoint : fallback.endpoint,
+    apiKeyMasked: typeof value.apiKeyMasked === 'string' ? value.apiKeyMasked : '',
     callCount: numberOr(value.callCount, 0),
     dailyLimit: numberOr(value.dailyLimit, DEFAULT_LIMIT),
   };
+}
+
+export interface SaveAiConfigPartialInput {
+  provider?: string;
+  model?: string;
+  endpoint?: string;
+  key?: string;
+  enabled?: boolean;
+  dailyLimit?: number;
+}
+
+export async function saveAiConfigCommand(input: SaveAiConfigPartialInput): Promise<AiStatus> {
+  if (!isTauri()) return defaultAiStatus();
+  return normalizeAiStatus(await tauriInvoke<unknown>('save_ai_config', {
+    provider: input.provider,
+    model: input.model,
+    endpoint: input.endpoint,
+    key: input.key,
+    enabled: input.enabled,
+    dailyLimit: input.dailyLimit,
+  }));
+}
+
+export async function deleteAiKeyCommand(): Promise<AiStatus> {
+  if (!isTauri()) return defaultAiStatus();
+  return normalizeAiStatus(await tauriInvoke<unknown>('delete_ai_key', {}));
 }
 
 export async function getAiStatus(): Promise<AiStatus> {

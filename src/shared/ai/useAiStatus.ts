@@ -1,160 +1,85 @@
 /**
- * Shared AI status for the header button and every AI caller.
+ * Shared AI status adapter for the header button and every AI caller.
  *
- * A single module-level state keeps the popover truthful: any feature can wrap
- * its request in `runAi()` and the dot, busy spinner and failure line update
- * without a parallel status store.
+ * Backed by the single Pinia useAiStore, so the popover, Settings page,
+ * AI status dot and AI features all read from and write to the same store.
+ * Labels: 'Configured', 'Not set up', 'Switched off', 'Last request failed'.
  */
-import { computed, ref } from 'vue';
-import {
-  cancelAiRequest,
-  defaultAiStatus,
-  getAiStatus,
-  providerLabel,
-  setAiDailyLimit as persistAiDailyLimit,
-  setAiEnabled as persistAiEnabled,
-  type AiStatus,
-} from '../../features/profile/aiStatus.ts';
-import { testAiConnection } from '../../features/profile/api.ts';
+import { createPinia, getActivePinia, setActivePinia, storeToRefs } from 'pinia';
+import { useAiStore, type AiDot } from '../../stores/ai.ts';
 
-const status = ref<AiStatus>(defaultAiStatus());
-const busy = ref(false);
-const busyLabel = ref('');
-const cancelRequested = ref(false);
-const failureReason = ref('');
-const testResult = ref('');
-const lastResult = ref('');
+export type { AiDot };
 
-export type AiDot = 'none' | 'amber' | 'red' | 'gray';
-
-function detail(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function friendlyReason(error: unknown): string {
-  const text = detail(error);
-  if (/401|403|unauthor|api key|invalid key|rejected/i.test(text)) {
-    return 'The API key was rejected. Check it in AI settings.';
+function getStore() {
+  if (!getActivePinia()) {
+    setActivePinia(createPinia());
   }
-  if (/429|daily ai call limit|limit reached/i.test(text)) {
-    return 'The daily AI call limit was reached. It resets tomorrow.';
-  }
-  if (/turned off|disabled/i.test(text)) return 'AI suggestions are switched off.';
-  if (/cancel/i.test(text)) return 'The request was cancelled.';
-  if (/network|timeout|connect|unreachable/i.test(text)) return 'The AI provider could not be reached.';
-  return `The last request failed: ${text}`;
+  return useAiStore();
 }
 
 export function useAiStatus() {
-  const dot = computed<AiDot>(() => {
-    if (busy.value) return 'none';
-    if (!status.value.configured) return 'amber';
-    if (!status.value.enabled) return 'gray';
-    if (failureReason.value) return 'red';
-    return 'none';
-  });
-
-  const stateLabel = computed(() => {
-    if (busy.value) return 'Working';
-    if (!status.value.configured) return 'Not set up';
-    if (!status.value.enabled) return 'Switched off';
-    if (failureReason.value) return 'Last request failed';
-    return 'Configured';
-  });
-
-  const tooltip = computed(() =>
-    `AI: ${stateLabel.value}. ${providerLabel(status.value.provider)}, ${status.value.model}.`);
+  const store = getStore();
+  const refs = storeToRefs(store);
 
   async function refresh(): Promise<void> {
-    try {
-      status.value = await getAiStatus();
-    } catch {
-      // Keep the last known status when the desktop command is unavailable.
-    }
+    return store.refresh();
   }
 
-  /** Wraps one AI request so the header reflects busy, success and failure. */
   async function runAi<T>(label: string, task: () => Promise<T>): Promise<T> {
-    busy.value = true;
-    busyLabel.value = label;
-    cancelRequested.value = false;
-    try {
-      const result = await task();
-      failureReason.value = '';
-      lastResult.value = 'Last AI request succeeded.';
-      return result;
-    } catch (error) {
-      failureReason.value = friendlyReason(error);
-      lastResult.value = '';
-      throw error;
-    } finally {
-      busy.value = false;
-      busyLabel.value = '';
-      cancelRequested.value = false;
-      await refresh();
-    }
+    return store.runAi(label, task);
   }
 
   async function setEnabled(next: boolean): Promise<void> {
-    const previous = status.value.enabled;
-    status.value = { ...status.value, enabled: next };
-    testResult.value = '';
-    try {
-      status.value = await persistAiEnabled(next);
-      failureReason.value = '';
-      lastResult.value = next ? 'AI suggestions turned on.' : 'AI suggestions turned off.';
-    } catch (error) {
-      status.value = { ...status.value, enabled: previous };
-      failureReason.value = `Could not save the AI setting: ${detail(error)}`;
-    }
+    return store.setEnabled(next);
   }
 
   async function setDailyLimit(limit: number): Promise<void> {
-    const bounded = Math.min(1000, Math.max(1, Math.round(limit)));
-    status.value = { ...status.value, dailyLimit: bounded };
-    try {
-      status.value = await persistAiDailyLimit(bounded);
-    } catch (error) {
-      failureReason.value = `Could not save the daily limit: ${detail(error)}`;
-      await refresh();
-    }
+    return store.setDailyLimit(limit);
   }
 
   async function cancel(): Promise<void> {
-    cancelRequested.value = true;
-    try {
-      await cancelAiRequest();
-    } catch {
-      // The request still finishes locally, but the user's intent is recorded.
-    }
+    return store.cancel();
   }
 
   async function testConnection(): Promise<string> {
-    try {
-      const message = await runAi('Testing connection', testAiConnection);
-      testResult.value = message;
-      return message;
-    } catch (error) {
-      testResult.value = `Connection test failed: ${detail(error)}`;
-      throw error;
-    }
+    return store.testConnection();
   }
 
   return {
-    status,
-    busy,
-    busyLabel,
-    cancelRequested,
-    failureReason,
-    testResult,
-    lastResult,
-    dot,
-    stateLabel,
-    tooltip,
+    store,
+    // Core state & computed getters
+    enabled: refs.enabled,
+    provider: refs.provider,
+    model: refs.model,
+    endpoint: refs.endpoint,
+    hasKey: refs.hasKey,
+    configured: refs.configured,
+    dailyLimit: refs.dailyLimit,
+    usageToday: refs.usageToday,
+    lastError: refs.lastError,
+    apiKeyMasked: refs.apiKeyMasked,
+    busy: refs.busy,
+    busyLabel: refs.busyLabel,
+    cancelRequested: refs.cancelRequested,
+    testResult: refs.testResult,
+    lastResult: refs.lastResult,
+    dot: refs.dot,
+    stateLabel: refs.stateLabel,
+    tooltip: refs.tooltip,
+    providerAndModel: refs.providerAndModel,
+    usagePercent: refs.usagePercent,
+    status: refs.status,
+    callCount: refs.callCount,
+    failureReason: refs.failureReason,
+
+    // Actions
     refresh,
+    load: () => store.load(),
     runAi,
     setEnabled,
     setDailyLimit,
+    savePartial: (fields: Parameters<typeof store.savePartial>[0]) => store.savePartial(fields),
+    deleteKey: () => store.deleteKey(),
     cancel,
     testConnection,
   };

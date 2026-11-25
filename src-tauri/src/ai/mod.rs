@@ -77,14 +77,15 @@ pub struct SaveAiConfigArgs {
 #[tauri::command]
 pub async fn save_ai_config<R: Runtime>(
     app: AppHandle<R>,
-    provider: String,
-    model: String,
+    provider: Option<String>,
+    model: Option<String>,
     endpoint: Option<String>,
     key: Option<String>,
     enabled: Option<bool>,
+    daily_limit: Option<u32>,
 ) -> Result<config::AiStatusOutput, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        config::save_ai_config_handler(&app, provider, model, endpoint, key, enabled)
+        config::save_ai_config_handler(&app, provider, model, endpoint, key, enabled, daily_limit)
     })
     .await
     .map_err(|e| format!("Task execution failed: {e}"))?

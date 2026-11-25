@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeConfig } from '../src/features/profile/model.ts';
-import { DEFAULT_DIET_SETTINGS, normalizeDietSettings } from '../src/features/profile/dietSettings.ts';
+import { normalizeConfig } from '../src/shared/ai/model.ts';
+import { DEFAULT_DIET_SETTINGS, normalizeDietSettings } from '../src/features/profile/model.ts';
 
 class MemoryStorage {
   constructor() { this.values = new Map(); }
@@ -75,37 +75,28 @@ test('AI config keeps only local provider metadata and no API key', () => {
   assert.equal(config.provider, 'gemini');
 });
 
-test('profile.json keeps a local AI marker and diet settings with no API key', async () => {
+test('profile.json stores only diet settings and drops the legacy AI marker', async () => {
   localStorage.setItem('profile_v1', JSON.stringify({
     ai: { provider: 'ollama', endpoint: 'http://localhost:11434/api/chat', model: 'llama3.2' },
     diet: DEFAULT_DIET_SETTINGS,
   }));
   const loaded = await api.loadProfileData();
-  assert.deepEqual(loaded.diet, DEFAULT_DIET_SETTINGS);
-  assert.equal('apiKey' in loaded.ai, false);
+  assert.deepEqual(loaded, { diet: DEFAULT_DIET_SETTINGS });
+  const migrated = JSON.parse(localStorage.getItem('profile_v1'));
+  assert.equal('ai' in migrated, false);
+  assert.deepEqual(migrated.diet, DEFAULT_DIET_SETTINGS);
 
   await api.saveProfileData({
-    ai: { provider: 'ollama', endpoint: 'https://api.openai.com', model: 'gpt-4o-mini' },
     diet: { ...DEFAULT_DIET_SETTINGS, medicationTime: '06:30', allergies: 'peanuts' },
   });
   const raw = JSON.parse(localStorage.getItem('profile_v1'));
-  assert.equal('apiKey' in raw.ai, false);
-  assert.equal(raw.ai.endpoint, 'https://api.openai.com');
-  assert.equal(raw.ai.model, 'gpt-4o-mini');
+  assert.equal('ai' in raw, false);
   assert.equal(raw.diet.medicationTime, '06:30');
   assert.equal(raw.diet.allergies, 'peanuts');
 
-  await api.saveAiConfig({
-    provider: 'ollama', endpoint: 'http://localhost:11434/api/chat', model: 'llama3.2',
-  });
-  const afterAiConfig = await api.loadProfileData();
-  assert.equal('apiKey' in afterAiConfig.ai, false);
-  assert.equal(afterAiConfig.ai.endpoint, 'http://localhost:11434/api/chat');
-  assert.equal((await api.loadDietSettings()).medicationTime, '06:30');
-
   await api.saveDietSettings({ ...DEFAULT_DIET_SETTINGS, dinnerTime: '20:00' });
   const after = await api.loadProfileData();
-  assert.equal(after.ai.endpoint, 'http://localhost:11434/api/chat');
+  assert.equal('ai' in after, false);
   assert.equal(after.diet.dinnerTime, '20:00');
 });
 

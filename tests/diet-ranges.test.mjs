@@ -24,7 +24,7 @@ import {
   restrictToRemainingMeals,
 } from '../src/features/diet/model.ts';
 import { deleteActualConfirm as confirmCopy } from '../src/features/diet/confirmCopy.ts';
-import { normalizeDietSettings, DEFAULT_DIET_SETTINGS } from '../src/features/profile/dietSettings.ts';
+import { normalizeDietSettings, DEFAULT_DIET_SETTINGS } from '../src/features/profile/model.ts';
 
 const facts = JSON.parse(readFileSync(new URL('../src/features/diet/knowledge/thyroidFacts.json', import.meta.url), 'utf8'));
 const today = { date: '2026-11-21', energy: 'medium', busyness: 'light', totalMinutes: 0, taskCount: 0 };

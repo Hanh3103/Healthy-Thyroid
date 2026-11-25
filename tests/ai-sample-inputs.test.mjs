@@ -6,15 +6,16 @@ register('./ts-resolve-loader.mjs', import.meta.url);
 
 import { suggestEnergy, prioritizeTasks } from '../src/features/planner/api.ts';
 import { updateShopping, requestDietPlan } from '../src/features/diet/api.ts';
-import { saveAiCredentials, deleteAiKey, testAiConnection } from '../src/features/profile/api.ts';
+import { testAiConnection } from '../src/shared/ai/api.ts';
+import { deleteAiKeyCommand, saveAiConfigCommand } from '../src/shared/ai/aiStatus.ts';
 
 test('AI features module exports typed command wrappers', () => {
   assert.equal(typeof suggestEnergy, 'function');
   assert.equal(typeof prioritizeTasks, 'function');
   assert.equal(typeof updateShopping, 'function');
   assert.equal(typeof requestDietPlan, 'function');
-  assert.equal(typeof saveAiCredentials, 'function');
-  assert.equal(typeof deleteAiKey, 'function');
+  assert.equal(typeof saveAiConfigCommand, 'function');
+  assert.equal(typeof deleteAiKeyCommand, 'function');
   assert.equal(typeof testAiConnection, 'function');
 });
 

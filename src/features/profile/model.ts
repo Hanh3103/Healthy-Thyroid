@@ -1,5 +1,5 @@
 /**
- * Profile-owned diet settings.
+ * Profile model: diet settings.
  *
  * These are the medication/meal times, preferences, allergies and accepted
  * cooking time used by the Diet Advisor. The Diet feature imports this type

@@ -5,9 +5,15 @@
  * object. These helpers turn that status into a short chip label and a sentence
  * that can be shown next to the button and in the status line.
  */
-import type { AiCredentialsStatus } from '../profile/model.ts';
 
 export type AiConfigState = 'ready' | 'missing' | 'unknown' | 'unsupported';
+
+/** Minimal, key-free shape shared by the AI status commands. */
+export interface AiConfigSnapshot {
+  configured: boolean;
+  provider: string;
+  model: string;
+}
 
 export interface AiConfigView {
   state: AiConfigState;
@@ -37,7 +43,7 @@ export function unknownAiConfig(): AiConfigView {
   };
 }
 
-export function describeAiConfig(status: AiCredentialsStatus | null, inDesktop: boolean): AiConfigView {
+export function describeAiConfig(status: AiConfigSnapshot | null, inDesktop: boolean): AiConfigView {
   if (!inDesktop) return unsupportedAiConfig();
   if (!status) return unknownAiConfig();
   if (!status.configured) {

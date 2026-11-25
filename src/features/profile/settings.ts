@@ -7,7 +7,7 @@
  */
 import { ref } from 'vue';
 import { loadDietSettings, saveDietSettings } from './api.ts';
-import { DEFAULT_DIET_SETTINGS, normalizeDietSettings, type DietSettings } from './dietSettings.ts';
+import { DEFAULT_DIET_SETTINGS, normalizeDietSettings, type DietSettings } from './model.ts';
 
 export const dietSettings = ref<DietSettings>({ ...DEFAULT_DIET_SETTINGS });
 let loaded = false;
