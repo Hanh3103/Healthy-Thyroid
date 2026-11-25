@@ -1,121 +1,109 @@
 /**
- * Profile AI configuration model.
+ * Profile-owned diet settings.
  *
- * The API key is entered in the Profile UI but is stored only in Rust app-data
- * and never returned to Vue. The frontend only handles provider/endpoint/model
- * and a masked status.
+ * These are the medication/meal times, preferences, allergies and accepted
+ * cooking time used by the Diet Advisor. The Diet feature imports this type
+ * and normalizer; Profile owns editing and persistence.
  */
-export type AIProvider = 'custom' | 'openai' | 'gemini' | 'claude' | 'mistral' | 'ollama';
+export type DietBudget = 'low' | 'medium' | 'high';
 
-export interface AIConfig {
-  provider: AIProvider;
-  endpoint: string;
-  model: string;
+export interface DietSettings {
+  /** Optional; an empty value means "not supplied". */
+  medicationTime: string;
+  breakfastTime: string;
+  lunchTime: string;
+  dinnerTime: string;
+  dietPreferences: string;
+  allergies: string;
+  avoidFoods: string;
+  cookingMinutes: number;
+  equipment: string;
+  /** Number of people the plan cooks for. */
+  servings: number;
+  /** Whether leftover portions should be planned. */
+  leftovers: boolean;
+  cuisinePreference: string;
+  /** Shop name or area; never an address. */
+  shopping: string;
+  budget: DietBudget;
 }
 
-export interface ProviderPreset {
-  endpoint: string;
-  model: string;
-}
-
-/** Built-in presets; `custom` has no preset because the user supplies everything. */
-export const AI_ENDPOINTS: Record<Exclude<AIProvider, 'custom'>, ProviderPreset> = {
-  openai: { endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
-  gemini: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/models', model: 'gemini-3.5-flash-lite' },
-  claude: { endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-3-5-haiku-latest' },
-  mistral: { endpoint: 'https://api.mistral.ai/v1/chat/completions', model: 'mistral-small-latest' },
-  ollama: { endpoint: 'http://localhost:11434/api/chat', model: 'llama3.2' },
+export const DEFAULT_DIET_SETTINGS: DietSettings = {
+  medicationTime: '',
+  breakfastTime: '08:00',
+  lunchTime: '12:30',
+  dinnerTime: '18:30',
+  dietPreferences: '',
+  allergies: '',
+  avoidFoods: '',
+  cookingMinutes: 30,
+  equipment: '',
+  servings: 1,
+  leftovers: false,
+  cuisinePreference: '',
+  shopping: '',
+  budget: 'medium',
 };
 
-export const AI_PROVIDER_OPTIONS: Array<{ value: AIProvider; label: string }> = [
-  { value: 'openai', label: 'OpenAI / compatible' },
-  { value: 'gemini', label: 'Google Gemini' },
-  { value: 'claude', label: 'Anthropic Claude' },
-  { value: 'mistral', label: 'Mistral' },
-  { value: 'ollama', label: 'Ollama (local)' },
-  { value: 'custom', label: 'Custom' },
-];
-
-/** Examples offered as a datalist while still allowing any model name. */
-export const MODEL_SUGGESTIONS: Record<AIProvider, readonly string[]> = {
-  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-  gemini: ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.5-pro'],
-  claude: ['claude-3-5-haiku-latest', 'claude-3-5-sonnet-latest'],
-  mistral: ['mistral-small-latest', 'mistral-medium-latest'],
-  ollama: ['llama3.2', 'mistral', 'gemma2'],
-  custom: [],
-};
-
-/**
- * Front-end mirror of the Rust endpoint allowlist. The Rust client validates
- * again before every request; this gives immediate feedback in Settings.
- */
-export function endpointError(provider: AIProvider, endpoint: string): string {
-  const value = endpoint.trim();
-  if (!value) return 'Enter an endpoint URL.';
-  const local = value.startsWith('http://localhost') || value.startsWith('http://127.0.0.1');
-  if (provider === 'gemini') {
-    return value.startsWith('https://generativelanguage.googleapis.com')
-      ? ''
-      : 'Gemini endpoints must be on https://generativelanguage.googleapis.com.';
-  }
-  if (provider === 'claude') {
-    return value.startsWith('https://api.anthropic.com')
-      ? ''
-      : 'Claude endpoints must be on https://api.anthropic.com.';
-  }
-  if (provider === 'ollama') {
-    return local || value.startsWith('https://')
-      ? ''
-      : 'Ollama endpoints must be local (localhost or 127.0.0.1) or use HTTPS.';
-  }
-  return value.startsWith('https://') || local
-    ? ''
-    : 'Remote endpoints must use HTTPS. Localhost is allowed for testing.';
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export interface AiCredentialsStatus {
-  configured: boolean;
-  source: 'app_data' | 'environment' | 'none';
-  provider: AIProvider;
-  endpoint: string;
-  model: string;
-  apiKeyMasked: string;
-  hasStoredKey: boolean;
+function cleanText(value: unknown, max = 240): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-export function emptyConfig(): AIConfig {
-  return { provider: 'openai', endpoint: AI_ENDPOINTS.openai.endpoint, model: AI_ENDPOINTS.openai.model };
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
-/** Returns the preset for a known provider, or null for `custom`. */
-export function presetFor(provider: AIProvider): ProviderPreset | null {
-  return provider === 'custom' ? null : AI_ENDPOINTS[provider];
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? value as T : fallback;
 }
 
-/** Applies a provider preset to a config, leaving `custom` untouched. */
-export function withPreset(config: AIConfig, provider: AIProvider): AIConfig {
-  const preset = presetFor(provider);
-  return preset
-    ? { ...config, provider, endpoint: preset.endpoint, model: preset.model }
-    : { ...config, provider };
+function timeValue(value: unknown, fallback: string): string {
+  const text = cleanText(value, 5);
+  if (!text) return '';
+  const match = text.match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return fallback;
+  const hour = Number(match[1]);
+  if (hour > 23) return fallback;
+  return `${String(hour).padStart(2, '0')}:${match[2]}`;
 }
 
-/** Complete when endpoint/model present and provider not custom-empty; key checked separately in Rust. */
-export function isConfigComplete(config: AIConfig): boolean {
-  return !!config.endpoint.trim() && !!config.model.trim();
-}
-
-/** Coerces persisted/user input into a valid config. Never includes an API key. */
-export function normalizeConfig(value: unknown): AIConfig {
-  const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const provider = typeof raw.provider === 'string' && raw.provider in AI_ENDPOINTS
-    ? raw.provider as AIProvider
-    : raw.provider === 'custom' ? 'custom' : 'openai';
-  const base = emptyConfig();
+/** Coerces stored or edited settings into safe, bounded values. */
+export function normalizeDietSettings(value: unknown): DietSettings {
+  const raw = isRecord(value) ? value : {};
+  const legacyDiet = cleanText(raw.diet, 120);
+  const legacyAvoid = cleanText(raw.avoid, 300);
   return {
-    provider,
-    endpoint: typeof raw.endpoint === 'string' && raw.endpoint.trim() ? raw.endpoint.trim() : base.endpoint,
-    model: typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : base.model,
+    medicationTime: timeValue(raw.medicationTime, DEFAULT_DIET_SETTINGS.medicationTime),
+    breakfastTime: timeValue(raw.breakfastTime, DEFAULT_DIET_SETTINGS.breakfastTime),
+    lunchTime: timeValue(raw.lunchTime, DEFAULT_DIET_SETTINGS.lunchTime),
+    dinnerTime: timeValue(raw.dinnerTime, DEFAULT_DIET_SETTINGS.dinnerTime),
+    dietPreferences: cleanText(raw.dietPreferences ?? legacyDiet, 120),
+    allergies: cleanText(raw.allergies ?? legacyAvoid, 300),
+    avoidFoods: cleanText(raw.avoidFoods ?? legacyAvoid, 300),
+    cookingMinutes: clampNumber(
+      raw.cookingMinutes ?? raw.maxCookMinutes,
+      DEFAULT_DIET_SETTINGS.cookingMinutes, 5, 240,
+    ),
+    equipment: cleanText(raw.equipment, 240),
+    servings: clampNumber(raw.servings, DEFAULT_DIET_SETTINGS.servings, 1, 12),
+    leftovers: raw.leftovers === true,
+    cuisinePreference: cleanText(raw.cuisinePreference, 120),
+    shopping: cleanText(raw.shopping, 120),
+    budget: oneOf(raw.budget, ['low', 'medium', 'high'] as const, DEFAULT_DIET_SETTINGS.budget),
   };
+}
+
+/** Splits a Profile list into short, unique values for the AI request. */
+export function splitProfileList(value: string): string[] {
+  return [...new Set(value
+    .split(/[,;\n]+/)
+    .map((part) => part.replace(/\s+/g, ' ').trim().slice(0, 80))
+    .filter(Boolean))].slice(0, 24);
 }
